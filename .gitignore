@@ -1,0 +1,8 @@
+*.o
+*.elf
+*.map
+*.dump
+*.temp
+*.uf2
+*.bin
+build*/

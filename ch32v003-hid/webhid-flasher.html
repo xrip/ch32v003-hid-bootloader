@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CH32V003 HID Flasher</title>
+<style>
+body{font:14px system-ui,sans-serif;margin:32px;max-width:840px;color:#1d2228}
+main{display:grid;gap:16px}
+button,input{font:inherit}
+button{padding:8px 12px}
+label{display:grid;gap:6px}
+progress{width:100%;height:18px}
+pre{background:#f3f5f7;padding:12px;min-height:160px;white-space:pre-wrap}
+.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+</style>
+<main>
+  <h1>CH32V003 HID Flasher</h1>
+  <div class="row">
+    <button id="connect">Connect</button>
+    <label>BIN base address <input id="base" value="0x08000000"></label>
+    <label>Firmware <input id="file" type="file" accept=".bin,.elf,.uf2"></label>
+    <button id="flash">Flash</button>
+  </div>
+  <progress id="progress" value="0" max="1"></progress>
+  <pre id="log"></pre>
+</main>
+<script>
+const VID = 0x1209, PID = 0xb003;
+const RID_WRITE = 0x41;
+const CMD_WRITE_PAGE = 3, CMD_FINISH_RESET = 4;
+const FLASH_BASE = 0x08000000, FLASH_SIZE = 16 * 1024, PAGE = 64, CHUNK = 8;
+let device;
+const $ = id => document.getElementById(id);
+const log = s => $("log").textContent += s + "\n";
+const u32 = (b,o) => b[o] | (b[o+1]<<8) | (b[o+2]<<16) | (b[o+3]<<24);
+const put16 = (b,o,v) => { b[o]=v&255; b[o+1]=v>>8; };
+const put32 = (b,o,v) => { b[o]=v&255; b[o+1]=v>>8; b[o+2]=v>>16; b[o+3]=v>>24; };
+
+function checkAddr(addr, len) {
+  if (addr < FLASH_BASE || addr + len > FLASH_BASE + FLASH_SIZE) throw Error(`Address out of CH32V003 flash: 0x${addr.toString(16)}`);
+}
+
+function pagesFromRanges(ranges) {
+  const pages = new Map();
+  for (const r of ranges) {
+    checkAddr(r.addr, r.data.length);
+    for (let i = 0; i < r.data.length; i++) {
+      const a = r.addr + i;
+      const paddr = a & ~(PAGE - 1);
+      if (!pages.has(paddr)) pages.set(paddr, new Uint8Array(PAGE).fill(0xff));
+      pages.get(paddr)[a - paddr] = r.data[i];
+    }
+  }
+  return [...pages.entries()].sort((a,b) => a[0] - b[0]).map(([addr,data]) => ({addr,data}));
+}
+
+function parseBin(buf) {
+  const base = Number($("base").value);
+  if ((base & (PAGE - 1)) !== 0) throw Error("BIN base must be 64-byte aligned");
+  return pagesFromRanges([{addr: base, data: new Uint8Array(buf)}]);
+}
+
+function parseElf(buf) {
+  const b = new Uint8Array(buf);
+  if (b[0] !== 0x7f || b[1] !== 0x45 || b[2] !== 0x4c || b[3] !== 0x46) throw Error("Bad ELF magic");
+  if (b[4] !== 1 || b[5] !== 1) throw Error("Only ELF32 little-endian is supported");
+  const phoff = u32(b, 28), phentsize = b[42] | (b[43]<<8), phnum = b[44] | (b[45]<<8);
+  const ranges = [];
+  for (let i = 0; i < phnum; i++) {
+    const o = phoff + i * phentsize;
+    if (u32(b,o) !== 1) continue;
+    const off = u32(b,o+4), vaddr = u32(b,o+8), paddr0 = u32(b,o+12), filesz = u32(b,o+16);
+    if (!filesz) continue;
+    let addr = paddr0 || vaddr;
+    if (addr < FLASH_BASE && addr < FLASH_SIZE) addr += FLASH_BASE;
+    ranges.push({addr, data: b.slice(off, off + filesz)});
+  }
+  if (!ranges.length) throw Error("No loadable ELF segments");
+  return pagesFromRanges(ranges);
+}
+
+function parseUf2(buf) {
+  const b = new Uint8Array(buf);
+  if (b.length % 512) throw Error("UF2 size must be a multiple of 512");
+  const ranges = [];
+  for (let o = 0; o < b.length; o += 512) {
+    if (u32(b,o) !== 0x0a324655 || u32(b,o+4) !== 0x9e5d5157 || u32(b,o+508) !== 0x0ab16f30) throw Error("Bad UF2 magic");
+    const flags = u32(b,o+8), addr = u32(b,o+12), len = u32(b,o+16);
+    if (flags & 1) continue;
+    if (len > 256) throw Error("UF2 payload too large");
+    ranges.push({addr, data: b.slice(o + 32, o + 32 + len)});
+  }
+  return pagesFromRanges(ranges);
+}
+
+async function send(cmd, addr, data = new Uint8Array()) {
+  const r = new Uint8Array(13);
+  r[0] = cmd; put32(r,1,addr); r.set(data, 5);
+  await device.sendFeatureReport(RID_WRITE, r);
+  await new Promise(resolve => setTimeout(resolve, 8));
+}
+
+async function getPages(file) {
+  const buf = await file.arrayBuffer();
+  const name = file.name.toLowerCase();
+  if (name.endsWith(".elf")) return parseElf(buf);
+  if (name.endsWith(".uf2")) return parseUf2(buf);
+  return parseBin(buf);
+}
+
+$("connect").onclick = async () => {
+  [device] = await navigator.hid.requestDevice({filters:[{vendorId:VID, productId:PID}]});
+  if (!device) return;
+  await device.open();
+  log(`Connected: ${device.productName || "CH32V003 HID bootloader"}`);
+};
+
+$("flash").onclick = async () => {
+  if (!device?.opened) throw Error("Connect first");
+  const file = $("file").files[0];
+  if (!file) throw Error("Choose a firmware file");
+  const pages = await getPages(file);
+  log(`Prepared ${pages.length} flash pages from ${file.name}`);
+  $("progress").max = pages.length * (PAGE / CHUNK);
+  $("progress").value = 0;
+  for (const p of pages) {
+    for (let off = 0; off < PAGE; off += CHUNK) {
+      await send(CMD_WRITE_PAGE, p.addr + off, p.data.slice(off, off + CHUNK));
+      $("progress").value++;
+    }
+    log(`Wrote 0x${p.addr.toString(16)}`);
+  }
+  await send(CMD_FINISH_RESET, 0);
+  log("Done");
+};
+</script>
+</html>

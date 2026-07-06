@@ -1,0 +1,5 @@
+file(SIZE "${BIN}" ACTUAL)
+message(STATUS "Bootloader binary size: ${ACTUAL} bytes; limit: ${LIMIT} bytes")
+if(ACTUAL GREATER LIMIT)
+    message(FATAL_ERROR "Bootloader exceeds CH32V003 BOOT area limit")
+endif()
