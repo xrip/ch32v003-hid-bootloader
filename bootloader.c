@@ -49,7 +49,7 @@ static void flash_wait(void) {
     while (FLASH->STATR & FLASH_BSY) {}
 }
 
-static void boot_user(void) {
+static void __attribute__((noinline, noreturn)) boot_user(void) {
     FLASH->MODEKEYR = FLASH_KEY1;
     FLASH->MODEKEYR = FLASH_KEY2;
     FLASH->STATR = 0;
