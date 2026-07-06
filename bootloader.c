@@ -89,7 +89,8 @@ static void process_report(const uint8_t *r, uint32_t n) {
 }
 
 void usb_setup(void) {
-    RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_AFIO;
+    /* Direct write: only GPIOD+AFIO are ever needed (USB is bit-banged; FLASH/PFIC always-on). */
+    RCC->APB2PCENR = RCC_APB2Periph_GPIOD | RCC_APB2Periph_AFIO;
     /* Reset value is 0x44444444 (all floating-in); set PD5/DPU to 50MHz PP out. */
     GPIOD->CFGLR = 0x44344444;
     AFIO->EXTICR = GPIO_PortSourceGPIOD << 8;
