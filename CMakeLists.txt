@@ -16,7 +16,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_LIST_DIR)
 endif()
 
 set(TARGET ch32v003_hid_bootloader)
-set(BOOTLOADER_SIZE_LIMIT 1916)
+set(BOOTLOADER_SIZE_LIMIT 1920)
 
 add_executable(${TARGET}
     bootloader.c

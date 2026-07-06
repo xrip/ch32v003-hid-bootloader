@@ -6,7 +6,7 @@ required.
 
 CH32V003 has no hardware USB peripheral, so HID over a bit-banged low-speed
 stack is the small and practical transport for a bootloader that must fit in
-the chip's 1916-byte boot area.
+the chip's 1920-byte boot area.
 
 ## Building
 
@@ -23,7 +23,7 @@ The build emits:
 - `build/ch32v003_hid_bootloader.elf`
 - `build/ch32v003_hid_bootloader.bin`
 
-It fails if the binary exceeds the CH32V003 boot-area limit of 1916 bytes.
+It fails if the binary exceeds the CH32V003 boot-area limit of 1920 bytes.
 
 ## Flashing from the host
 
