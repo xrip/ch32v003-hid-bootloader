@@ -100,8 +100,6 @@ void usb_pid_handle_ack( uint32_t dummy, uint8_t * data, uint32_t dummy2, uint32
 void usb_send_data( const void * data, uint32_t length, uint32_t poly_function, uint32_t token );
 void usb_send_empty( uint32_t token );
 
-void usb_setup();
-
 
 #if RV003USB_EVENT_DEBUGGING
 void LogUEvent( uint32_t a, uint32_t b, uint32_t c, uint32_t d );
