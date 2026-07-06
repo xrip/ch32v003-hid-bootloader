@@ -45,7 +45,7 @@ static uint32_t get32(const uint8_t *p) {
     return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
-static void flash_wait(void) {
+static inline __attribute__((always_inline)) void flash_wait(void) {
     while (FLASH->STATR & FLASH_BSY) {}
 }
 
