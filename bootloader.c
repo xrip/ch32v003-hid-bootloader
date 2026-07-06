@@ -31,18 +31,18 @@ static const uint8_t report_desc[] = {
     0xc0
 };
 
-static const uint8_t config_desc[] = {
+static constexpr uint8_t config_desc[] = {
     9, 2, 27, 0, 1, 1, 0, 0x80, 50,
     9, 4, 0, 0, 0, 3, 0, 0, 0,
     9, 0x21, 0x11, 0x01, 0, 1, 0x22, sizeof(report_desc), 0,
 };
 
 static uint16_t get16(const uint8_t *p) {
-    return (uint16_t)p[0] | ((uint16_t)p[1] << 8);
+    return (uint16_t)p[0] | (uint16_t)p[1] << 8;
 }
 
 static uint32_t get32(const uint8_t *p) {
-    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
 }
 
 static void flash_wait(void) {
@@ -65,7 +65,7 @@ static void process_report(const uint8_t *r, uint32_t n) {
     if (n < 13)
         return;
 
-    uint32_t addr = get32(r + 1);
+    const uint32_t addr = get32(r + 1);
     if (r[0] == CMD_RESET)
         boot_user();
     if (r[0] != CMD_WRITE)
@@ -90,10 +90,8 @@ static void process_report(const uint8_t *r, uint32_t n) {
 
 void usb_setup(void) {
     RCC->APB2PCENR |= RCC_APB2Periph_GPIOD | RCC_APB2Periph_AFIO;
-    GPIOD->CFGLR = (GPIOD->CFGLR & ~((0xf << 12) | (0xf << 16) | (0xf << 20))) |
-        ((GPIO_Speed_In | GPIO_CNF_IN_FLOATING) << 12) |
-        ((GPIO_Speed_In | GPIO_CNF_IN_FLOATING) << 16) |
-        (GPIO_CFGLR_OUT_50Mhz_PP << 20);
+    /* Reset value is 0x44444444 (all floating-in); set PD5/DPU to 50MHz PP out. */
+    GPIOD->CFGLR = 0x44344444;
     AFIO->EXTICR = GPIO_PortSourceGPIOD << 8;
     EXTI->INTENR = 1 << USB_PIN_DM;
     EXTI->FTENR = 1 << USB_PIN_DM;
@@ -101,20 +99,20 @@ void usb_setup(void) {
     NVIC_EnableIRQ(EXTI7_0_IRQn);
 }
 
-void usb_pid_handle_in(uint32_t addr, uint8_t *data, uint32_t endp, uint32_t unused, struct rv003usb_internal *ist) {
+void usb_pid_handle_in(const uint32_t addr, const uint8_t *data, const uint32_t endp, const uint32_t unused, const struct rv003usb_internal *ist) {
     (void)addr; (void)data; (void)unused;
-    struct usb_endpoint *e = &ist->eps[endp];
+    const struct usb_endpoint *e = &ist->eps[endp];
     uint32_t left = e->max_len - (e->count << 3);
     if (left > 8) left = 8;
     usb_send_data(e->opaque + (e->count << 3), left, 0, e->toggle_in ? 0b01001011 : 0b11000011);
 }
 
-void usb_pid_handle_data(uint32_t token, uint8_t *data, uint32_t which_data, uint32_t length, struct rv003usb_internal *ist) {
+void usb_pid_handle_data(const uint32_t token, uint8_t *data, const uint32_t which_data, const uint32_t length, struct rv003usb_internal *ist) {
     (void)token; (void)which_data; (void)length;
     struct usb_endpoint *e = &ist->eps[ist->current_endpoint];
     uint8_t *p = data;
     if (ist->setup_request == 2) {
-        uint32_t off = e->count << 3;
+        const uint32_t off = e->count << 3;
         uint8_t *dst = (uint8_t *)&report_out[1] + off;
         for (uint32_t i = 0; i < 8; i++)
             dst[i] = p[i];
@@ -124,10 +122,10 @@ void usb_pid_handle_data(uint32_t token, uint8_t *data, uint32_t which_data, uin
             process_report((const uint8_t *)&report_out[1], 14);
         }
     } else if (ist->setup_request) {
-        struct usb_urb *s = (struct usb_urb *)p;
-        uint32_t req = s->wRequestTypeLSBRequestMSB >> 1;
-        uint32_t wvi = s->lValueLSBIndexMSB;
-        e->opaque = 0;
+        const struct usb_urb *s = (struct usb_urb *)p;
+        const uint32_t req = s->wRequestTypeLSBRequestMSB >> 1;
+        const uint32_t wvi = s->lValueLSBIndexMSB;
+        e->opaque = nullptr;
         e->max_len = 0;
         e->count = 0;
         ist->setup_request = 0;
@@ -148,10 +146,10 @@ void usb_pid_handle_data(uint32_t token, uint8_t *data, uint32_t which_data, uin
             ist->setup_request = 2;
         }
     }
-    usb_send_data(0, 0, 2, 0xD2);
+    usb_send_data(nullptr, 0, 2, 0xD2);
 }
 
-int main(void) {
+int __attribute__((noreturn)) main(void) {
     usb_setup();
     __asm__ goto(
         "lui t0, 0x300\n"
