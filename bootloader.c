@@ -142,8 +142,6 @@ void usb_pid_handle_data(uint32_t token, uint8_t *data, uint32_t which_data, uin
                 e->opaque = (uint8_t *)report_desc;
                 e->max_len = sizeof(report_desc);
             }
-            if (e->max_len > s->wLength)
-                e->max_len = s->wLength;
         } else if (req == (0x0500 >> 1)) {
             ist->my_address = wvi;
         } else if (req == (0x0921 >> 1) && (wvi & 0xffff) == 0x0341) {
