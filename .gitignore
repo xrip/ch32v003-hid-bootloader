@@ -6,3 +6,6 @@
 *.uf2
 *.bin
 build*/
+cmake-build-*/
+.idea/
+ch32v003-bootloader-docs-main/

@@ -1,59 +1,56 @@
 # CH32V003 HID bootloader
 
-This repository now contains a small experimental USB HID bootloader for the
-CH32V003, built on top of `rv003usb`.
+A small USB HID bootloader for the CH32V003. The device enumerates as a vendor
+HID device and is flashed from a browser over WebHID — no native host tooling
+required.
 
-The original WCH UF2 Mass Storage bootloader sources were kept in git history
-for reference and then removed from the working tree. The active project is the
-CH32V003 low-speed HID bootloader.
+CH32V003 has no hardware USB peripheral, so HID over a bit-banged low-speed
+stack is the small and practical transport for a bootloader that must fit in
+the chip's 1916-byte boot area.
 
-## Layout
+## Building
 
-- `ch32v003-hid/` - bootloader firmware, linker script, CMake target, and
-  browser-side WebHID flasher.
-- `rv003usb/` - software low-speed USB stack used by the bootloader.
-- `ch32v003-bootloader-docs-main/` - CH32V003 bootloader/reference docs kept
-  for local reference.
-- `toolchain-riscv-none-elf.cmake` - CMake toolchain file for the xPack
-  RISC-V GCC toolchain.
-
-## Build
-
-The expected toolchain is installed at:
+The expected toolchain is the xPack RISC-V GCC toolchain. Install it, or point
+`RISCV_TOOLCHAIN_PATH` at its root directory, then:
 
 ```powershell
-C:\xpack-riscv-none-elf-gcc-15.2.0-1\bin
-```
-
-Configure and build:
-
-```powershell
-cmake -S . -B build-ch32v003-hid -G Ninja `
-  -DCMAKE_TOOLCHAIN_FILE="$PWD/toolchain-riscv-none-elf.cmake"
-cmake --build build-ch32v003-hid
+cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/toolchain-riscv-none-elf.cmake"
+cmake --build build
 ```
 
 The build emits:
 
-- `build-ch32v003-hid/ch32v003-hid/ch32v003_hid_bootloader.elf`
-- `build-ch32v003-hid/ch32v003-hid/ch32v003_hid_bootloader.bin`
+- `build/ch32v003_hid_bootloader.elf`
+- `build/ch32v003_hid_bootloader.bin`
 
-The bootloader is size-checked against the 1916-byte CH32V003 boot area limit.
+It fails if the binary exceeds the CH32V003 boot-area limit of 1916 bytes.
 
-## Flashing model
+## Flashing from the host
 
-The device enumerates as a vendor HID device. The HTML flasher in
-`ch32v003-hid/webhid-flasher.html` accepts `.bin`, `.elf`, and `.uf2` files in
-the browser, converts them client-side, and sends fixed bootloader write reports
-over WebHID.
+Open `webhid-flasher.html` in a Chromium-based browser. The page accepts `.bin`,
+`.elf`, and `.uf2` files, converts them client-side, and sends fixed addressed
+write chunks to the device over HID feature reports.
 
-The firmware waits for a bounded number of CPU cycles after reset. If no first
-HID write report arrives during that window, it jumps to the user application.
-Once flashing starts, the bootloader remains active and writes standard binary
-payload bytes into flash.
+On reset the bootloader waits for a bounded number of cycles. If no first write
+report arrives during that window it jumps straight to the user application;
+once flashing starts it stays active and writes the payload into flash.
 
-## Notes
+## Limitations
 
-This is not a USB Mass Storage bootloader. CH32V003 has no hardware USB
-peripheral, and `rv003usb` provides low-speed software USB, so HID is the small
-and practical transport here.
+These follow from the tight size budget:
+
+- No readback verification.
+- No status or error report from the device.
+- If flashing does not start after reset, the bootloader jumps to the user app
+  after a fixed busy-loop timeout.
+- Device-side address validation is intentionally minimal; the WebHID page
+  validates CH32V003 flash ranges before sending.
+
+## Credits
+
+The low-speed USB stack in `rv003usb/` is
+[rv003usb](https://github.com/cnlohr/rv003usb) by Charles Lohr (cnlohr).
+
+## License
+
+See `LICENSE`.

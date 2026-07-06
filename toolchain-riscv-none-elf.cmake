@@ -100,6 +100,10 @@ set(CMAKE_C_FLAGS_INIT "${_pico_compat_c_flags}")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "${_pico_compat_ld_flags}")
 set(CMAKE_ASM_FLAGS_INIT "${_pico_compat_c_flags}")
 
+set(CMAKE_C_STANDARD_LIBRARIES "" CACHE STRING "Bare-metal target has no host C standard libraries" FORCE)
+set(CMAKE_ASM_STANDARD_LIBRARIES "" CACHE STRING "Bare-metal target has no ASM standard libraries" FORCE)
+set(CMAKE_EXE_LINKER_FLAGS "${_pico_compat_ld_flags}" CACHE STRING "Bare-metal executable linker flags" FORCE)
+
 # Don't let CMake search the host system for libraries / headers / packages
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
