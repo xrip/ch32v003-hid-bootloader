@@ -107,8 +107,8 @@ void usb_pid_handle_in(const uint32_t addr, const uint8_t *data, const uint32_t 
     usb_send_data(e->opaque + (e->count << 3), left, 0, e->toggle_in ? 0b01001011 : 0b11000011);
 }
 
-void usb_pid_handle_data(const uint32_t token, uint8_t *data, const uint32_t which_data, const uint32_t length, struct rv003usb_internal *ist) {
-    (void)token; (void)which_data; (void)length;
+void usb_pid_handle_data(const uint32_t this_token, uint8_t *data, const uint32_t which_data, const uint32_t length, struct rv003usb_internal *ist) {
+    (void)this_token; (void)which_data; (void)length;
     struct usb_endpoint *e = &ist->eps[ist->current_endpoint];
     uint8_t *p = data;
     if (ist->setup_request == 2) {
