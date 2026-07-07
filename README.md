@@ -1,4 +1,4 @@
-# CH32V003 HID bootloader
+# CH32V003 USB HID bootloader + flasher
 
 **[Flash it from your browser →](https://xrip.github.io/ch32v003-hid-bootloader/webhid-flasher.html)**
 (WebHID; Chrome, Edge, Opera. No install.)
