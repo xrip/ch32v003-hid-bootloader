@@ -5,16 +5,16 @@
 
 A small USB HID bootloader for the CH32V003. The device enumerates as a
 vendor HID device (VID `0x1209`, PID `0xB003`) and is flashed from a
-browser over WebHID — no native host tooling required.
+browser over WebHID, with no native host tooling required.
 
-CH32V003 has no hardware USB peripheral, so HID over a bit-banged low-speed
-stack is the small and practical transport for a bootloader that must fit
-in the chip's 1920-byte boot area.
+The CH32V003 has no hardware USB peripheral. The bootloader bit-bangs a
+low-speed HID stack, which is small enough to live in the 1920-byte
+boot area.
 
 ## Building
 
-Prerequisites: **CMake ≥ 3.20**, **Ninja**, and the **xPack RISC-V GCC**
-toolchain (put its `bin/` on your `PATH`).
+Prerequisites: CMake ≥ 3.20, Ninja, and the xPack RISC-V GCC toolchain
+(put its `bin/` on your `PATH`).
 
 ```powershell
 cmake -S . -B build -G Ninja
@@ -34,8 +34,8 @@ It fails if the binary exceeds the CH32V003 boot-area limit of 1920 bytes
 Open `webhid-flasher.html` in a Chromium-based browser. The page accepts
 `.bin`, `.elf`, and `.uf2` files, converts them client-side, and sends
 addressed 8-byte write chunks to the device over HID feature reports. The
-device enumerates as `1209:B003` — that's the filter the WebHID page uses
-to find it.
+device enumerates as `1209:B003` (the filter the WebHID page uses to find
+it).
 
 On reset the bootloader waits for a bounded number of cycles. If no
 first write report arrives during that window it jumps straight to the
@@ -45,8 +45,6 @@ reset command and the chip reboots into the newly-written user
 application.
 
 ## Limitations
-
-These follow from the tight size budget:
 
 - No readback verification.
 - No status or error report from the device.
@@ -58,23 +56,21 @@ These follow from the tight size budget:
 
 ## Size budget and optimizations
 
-The bootloader fits in a **1920-byte BOOT area** (the CH32V003's boot
-section, remapped to `0x00000000` on reset). The linker script enforces
-this — overflow fails the link. The current binary is **1792 / 1920 B
-(93 %)**.
+The bootloader fits in a **1920-byte BOOT area** on the CH32V003 (remapped
+to `0x00000000` on reset). The linker script enforces this: overflow
+fails the link. The current binary is **1792 / 1920 B (93 %)**.
 
-The code is intentionally terse — branchless selects, `process_report`
-stripped to essentials. Notable size wins:
+The code is deliberately terse — branchless selects, `process_report`
+cut down to what it needs. `-nostdlib` acts as a guardrail: a stray
+`int * int` would fail the link instead of silently pulling `__mulsi3`
+(~+36 B) into the image. Beyond that, a handful of small wins added up:
+`boot_user` dedup + `noreturn` (−36 B), `flash_wait` force-inlined
+(−28 B), direct-writes to `GPIOD->CFGLR` and `RCC->APB2PCENR` (−12 B
+combined), dropping the descriptor `wLength` clamp (−20 B).
 
-- `-nostdlib` guardrail: a stray `int * int` would fail the link instead
-  of silently pulling `__mulsi3` (~+36 B) into the image.
-- `boot_user` dedup + `noreturn` (−36 B), `flash_wait` force-inlined
-  (−28 B), direct-writes to `GPIOD->CFGLR` and `RCC->APB2PCENR` (−12 B),
-  dropped descriptor `wLength` clamp (−20 B).
-
-A full library audit confirms zero libgcc/libc symbols; the rv003usb
-ISR is at its feature floor (every optional macro off, `--gc-sections`
-removes nothing).
+Library audit: zero libgcc/libc symbols. The rv003usb ISR is at its
+feature floor — every optional macro is off and `--gc-sections` removes
+nothing.
 
 ## Credits
 
@@ -83,4 +79,4 @@ The low-speed USB stack in `rv003usb/` is
 
 ## License
 
-[MIT](LICENSE.txt) — Copyright (c) 2026, xrip.
+[MIT](LICENSE.txt). Copyright (c) 2026, xrip.
