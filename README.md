@@ -56,4 +56,4 @@ The low-speed USB stack in `rv003usb/` is
 
 ## License
 
-See `LICENSE`.
+[MIT](LICENSE.txt) — Copyright (c) 2026, xrip.
