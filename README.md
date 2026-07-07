@@ -1,5 +1,8 @@
 # CH32V003 HID bootloader
 
+**[Flash it from your browser →](https://xrip.github.io/ch32v003-hid-bootloader/webhid-flasher.html)**
+(WebHID; Chrome, Edge, Opera. No install.)
+
 A small USB HID bootloader for the CH32V003. The device enumerates as a vendor
 HID device and is flashed from a browser over WebHID — no native host tooling
 required.
