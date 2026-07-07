@@ -67,7 +67,7 @@ static void process_report(const uint8_t *r, uint32_t n) {
 
     const uint32_t addr = get32(r + 1);
     if (r[0] == CMD_RESET)
-        boot_user();
+        return boot_user();
     if (r[0] != CMD_WRITE)
         return;
 
