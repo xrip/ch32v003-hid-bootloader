@@ -52,17 +52,41 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Check whether firmware-affecting files changed
+        id: srccheck
+        run: |
+          set -e
+          if git rev-parse HEAD^ >/dev/null 2>&1; then
+            changed=$(git diff --name-only HEAD^ HEAD)
+          else
+            # Root commit (no parent): everything is new, treat as firmware-touching.
+            changed=$(git ls-files)
+          fi
+          hit=$(printf '%s\n' "$changed" \
+            | grep -E '^(src/|rv003usb/|linker\.ld$|CMakeLists\.txt$)' || true)
+          if [ -z "$hit" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No firmware-affecting files changed in this commit; skipping release."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "Firmware-affecting files changed:"
+            echo "$hit"
+          fi
+
       - name: Resolve short SHA
+        if: steps.srccheck.outputs.changed == 'true'
         id: sha
         run: echo "short=$(echo $GITHUB_SHA | cut -c1-7)" >> "$GITHUB_OUTPUT"
 
       - name: Download bootloader artifacts
+        if: steps.srccheck.outputs.changed == 'true'
         uses: actions/download-artifact@v4
         with:
           name: ch32v003-hid-bootloader
           path: bin
 
       - name: Create release
+        if: steps.srccheck.outputs.changed == 'true'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ steps.sha.outputs.short }}
