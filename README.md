@@ -31,11 +31,23 @@ It fails if the binary exceeds the CH32V003 boot-area limit of 1920 bytes
 
 ## Flashing from the host
 
-Open `webhid-flasher.html` in a Chromium-based browser. The page accepts
-`.bin`, `.elf`, and `.uf2` files, converts them client-side, and sends
-addressed 8-byte write chunks to the device over HID feature reports. The
-device enumerates as `1209:B003` (the filter the WebHID page uses to find
-it).
+Open `webhid-flasher.html` in a Chromium-based browser (Chrome, Edge,
+or Opera). The page accepts `.bin`, `.elf`, and `.uf2` files, converts
+them client-side, and sends addressed 8-byte write chunks to the device
+over HID feature reports. The device enumerates as `1209:B003` — that's
+the filter the WebHID page uses to find it.
+
+To flash:
+
+1. Pick a firmware file.
+2. Click **Flash**.
+3. Plug in the CH32V003 (or reset it) — the page detects it and starts
+   flashing automatically.
+
+First time only: plug in the board *before* clicking Flash so your
+browser can show the one-time permission prompt. After that, the three
+steps above are all you need — a reset is enough to start each new
+flash.
 
 On reset the bootloader waits for a bounded number of cycles. If no
 first write report arrives during that window it jumps straight to the

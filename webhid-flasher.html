@@ -8,11 +8,14 @@ body{font:14px system-ui,sans-serif;margin:32px;max-width:880px;color:#1d2228}
 main{display:grid;gap:14px}
 h1{margin:0 0 4px;font-size:20px}
 .muted{color:#666;font-size:13px}
+.small{font-size:12.5px}
 button,input{font:inherit}
 button{padding:8px 14px;cursor:pointer}
 button:disabled{cursor:not-allowed;opacity:.55}
 label{display:grid;gap:4px;font-size:13px}
 .row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+ol.steps{margin:0;padding-left:22px;line-height:1.6}
+ol.steps li{margin:2px 0}
 #status{padding:8px 10px;border-radius:6px;background:#eef2f6;font-weight:600}
 #status.err{background:#fdecec;color:#8a1f1f}
 #status.ok{background:#e6f4ea;color:#1a6b32}
@@ -23,6 +26,13 @@ code{background:#eef2f6;padding:1px 5px;border-radius:3px;font-size:92%}
 <main>
   <h1>CH32V003 HID Flasher</h1>
   <p class="muted">Flashes a <code>.bin</code>, <code>.elf</code>, or <code>.uf2</code> over WebHID. The device enumerates as <code>1209:B003</code>. Requires Chrome, Edge, or Opera.</p>
+
+  <ol class="steps">
+    <li>Pick a firmware file.</li>
+    <li>Click <strong>Flash</strong>.</li>
+    <li>Plug in the CH32V003 (or reset it) — the page detects it and starts flashing automatically.</li>
+  </ol>
+  <p class="muted small">First time only: plug in the board <em>before</em> clicking Flash so your browser can show the one-time permission prompt. After that, the three steps above are all you need.</p>
 
   <div class="row">
     <label>Firmware <input id="file" type="file" accept=".bin,.elf,.uf2"></label>
@@ -125,25 +135,118 @@ async function send(cmd, addr, data = new Uint8Array()) {
 
 let device = null;
 let pages = null;
-let flashing = false;
+let phase = "idle"; // idle | awaiting-plug-in | waiting-for-board | flashing
 
-async function acquireDevice() {
-  if (!navigator.hid) throw Error("WebHID is not available. Use Chrome, Edge, or Opera.");
-  if (device && device.opened) return device;
+async function performFlash() {
+  phase = "flashing";
+  setStatus("Writing flash…");
+  log("--- Flash started ---");
+  try {
+    log(`Connected to ${device.productName || "CH32V003 HID bootloader"}.`);
+    $("progress").max = pages.length * (PAGE / CHUNK);
+    $("progress").value = 0;
+    for (const p of pages) {
+      for (let off = 0; off < PAGE; off += CHUNK) {
+        await send(CMD_WRITE_PAGE, p.addr + off, p.data.slice(off, off + CHUNK));
+        $("progress").value++;
+      }
+      log(`Wrote page at 0x${p.addr.toString(16)}.`);
+    }
+    log("Sending reset command.");
+    await send(CMD_FINISH_RESET, 0);
+    setStatus("Done. The chip is rebooting into the user app. To reflash: click Flash again, then reset the board.", "ok");
+    log("Done.");
+    $("flash").disabled = false;
+    phase = "idle";
+  } catch (e) {
+    setStatus(e.message, "err");
+    log(`Error: ${e.message}`);
+    $("flash").disabled = !pages;
+    phase = "idle";
+  }
+}
+
+$("flash").addEventListener("click", async () => {
+  if (phase === "flashing" || phase === "waiting-for-board") return;
+  if (!pages) return;
+  if (!navigator.hid) { setStatus("WebHID is not available. Use Chrome, Edge, or Opera.", "err"); return; }
+
+  $("flash").disabled = true;
+
   const known = (await navigator.hid.getDevices()).find(d => d.vendorId === VID && d.productId === PID);
+
+  if (phase === "awaiting-plug-in") {
+    // Second click after the first-time hint — board should be plugged in now.
+    setStatus("Opening device picker — select your CH32V003.");
+    log("Opening permission picker.");
+    let picked;
+    try {
+      [picked] = await navigator.hid.requestDevice({filters: [{vendorId: VID, productId: PID}]});
+    } catch (e) {
+      setStatus(e.message, "err");
+      log(`Error: ${e.message}`);
+      phase = "idle"; $("flash").disabled = !pages;
+      return;
+    }
+    if (!picked) {
+      setStatus("No device selected.", "err");
+      log("No device selected.");
+      phase = "idle"; $("flash").disabled = !pages;
+      return;
+    }
+    device = picked;
+    await device.open();
+    await performFlash();
+    return;
+  }
+
   if (known) {
     device = known;
-    if (!device.opened) await device.open();
-    log(`Reusing previously authorized device (${device.productName || "CH32V003 HID bootloader"}).`);
-    return device;
+    if (device.opened) {
+      await performFlash();
+      return;
+    }
+    phase = "waiting-for-board";
+    setStatus("Ready. Plug in the CH32V003 (or reset it) — flashing starts automatically when the bootloader enumerates.");
+    log("Waiting for the board. Plug it in or reset it now.");
+    return;
   }
-  setStatus("Opening device picker. If your CH32V003 isn't listed, reset it now — the bootloader is only enumerable briefly.");
-  log("No previously authorized device. Opening the browser device picker.");
-  const [picked] = await navigator.hid.requestDevice({filters: [{vendorId: VID, productId: PID}]});
-  if (!picked) throw Error("No device selected in the picker.");
-  device = picked;
-  await device.open();
-  return device;
+
+  // First time, no authorized device yet.
+  phase = "awaiting-plug-in";
+  setStatus("First time: plug in the CH32V003 (or reset it so the bootloader enumerates), then click Flash again for the one-time permission prompt.");
+  log("First time: plug in the board so it enumerates, then click Flash to open the permission picker.");
+  $("flash").disabled = false;
+});
+
+if (navigator.hid) {
+  navigator.hid.addEventListener("connect", async (ev) => {
+    if (ev.device.vendorId !== VID || ev.device.productId !== PID) return;
+    if (phase === "waiting-for-board") {
+      log(`Board connected: ${ev.device.productName || "CH32V003 HID bootloader"}.`);
+      device = ev.device;
+      try {
+        if (!device.opened) await device.open();
+      } catch (e) {
+        setStatus(e.message, "err");
+        log(`Error: ${e.message}`);
+        phase = "idle"; $("flash").disabled = !pages;
+        return;
+      }
+      await performFlash();
+    } else if (phase === "awaiting-plug-in") {
+      log(`Board detected: ${ev.device.productName || "CH32V003 HID bootloader"}.`);
+      setStatus("Board detected. Click Flash to grant permission and start flashing.");
+    } else if (phase === "idle" && pages) {
+      setStatus("Board detected. Click Flash to start.");
+    }
+  });
+  navigator.hid.addEventListener("disconnect", (ev) => {
+    if (device && ev.device === device) {
+      device = null;
+      log(phase === "flashing" ? "Device disconnected during flash." : "Device disconnected (the chip rebooted).");
+    }
+  });
 }
 
 $("file").addEventListener("change", async () => {
@@ -164,50 +267,6 @@ $("file").addEventListener("change", async () => {
     pages = null; $("flash").disabled = true;
     setStatus(e.message, "err");
     log(`Parse error: ${e.message}`);
-  }
-});
-
-if (navigator.hid) {
-  navigator.hid.addEventListener("disconnect", (ev) => {
-    if (device && ev.device === device) {
-      device = null;
-      log(flashing ? "Device disconnected during flash." : "Device disconnected (the chip rebooted).");
-    }
-  });
-  navigator.hid.addEventListener("connect", (ev) => {
-    if (ev.device.vendorId === VID && ev.device.productId === PID)
-      log(`Device connected: ${ev.device.productName || "CH32V003 HID bootloader"}.`);
-  });
-}
-
-$("flash").addEventListener("click", async () => {
-  if (flashing || !pages) return;
-  flashing = true; $("flash").disabled = true;
-  setStatus("Connecting…");
-  log("--- Flash started ---");
-  try {
-    await acquireDevice();
-    log(`Connected to ${device.productName || "CH32V003 HID bootloader"}.`);
-    setStatus("Writing flash…");
-    $("progress").max = pages.length * (PAGE / CHUNK);
-    $("progress").value = 0;
-    for (const p of pages) {
-      for (let off = 0; off < PAGE; off += CHUNK) {
-        await send(CMD_WRITE_PAGE, p.addr + off, p.data.slice(off, off + CHUNK));
-        $("progress").value++;
-      }
-      log(`Wrote page at 0x${p.addr.toString(16)}.`);
-    }
-    log("Sending reset command.");
-    await send(CMD_FINISH_RESET, 0);
-    setStatus("Done. The chip is rebooting into the user app.", "ok");
-    log("Done.");
-  } catch (e) {
-    setStatus(e.message, "err");
-    log(`Error: ${e.message}`);
-  } finally {
-    flashing = false;
-    $("flash").disabled = !pages;
   }
 });
 </script>
