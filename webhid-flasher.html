@@ -4,40 +4,53 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CH32V003 HID Flasher</title>
 <style>
-body{font:14px system-ui,sans-serif;margin:32px;max-width:840px;color:#1d2228}
-main{display:grid;gap:16px}
+body{font:14px system-ui,sans-serif;margin:32px;max-width:880px;color:#1d2228}
+main{display:grid;gap:14px}
+h1{margin:0 0 4px;font-size:20px}
+.muted{color:#666;font-size:13px}
 button,input{font:inherit}
-button{padding:8px 12px}
-label{display:grid;gap:6px}
-progress{width:100%;height:18px}
-pre{background:#f3f5f7;padding:12px;min-height:160px;white-space:pre-wrap}
-.row{display:flex;gap:10px;align-items:end;flex-wrap:wrap}
+button{padding:8px 14px;cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.55}
+label{display:grid;gap:4px;font-size:13px}
+.row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+#status{padding:8px 10px;border-radius:6px;background:#eef2f6;font-weight:600}
+#status.err{background:#fdecec;color:#8a1f1f}
+#status.ok{background:#e6f4ea;color:#1a6b32}
+progress{width:100%;height:16px}
+pre{background:#f3f5f7;padding:10px 12px;min-height:180px;max-height:320px;overflow:auto;white-space:pre-wrap;margin:0;font-size:12.5px;line-height:1.45}
+code{background:#eef2f6;padding:1px 5px;border-radius:3px;font-size:92%}
 </style>
 <main>
   <h1>CH32V003 HID Flasher</h1>
+  <p class="muted">Flashes a <code>.bin</code>, <code>.elf</code>, or <code>.uf2</code> over WebHID. The device enumerates as <code>1209:B003</code>. Requires Chrome, Edge, or Opera.</p>
+
   <div class="row">
-    <button id="connect">Connect</button>
-    <label>BIN base address <input id="base" value="0x08000000"></label>
     <label>Firmware <input id="file" type="file" accept=".bin,.elf,.uf2"></label>
-    <button id="flash">Flash</button>
+    <label>BIN base (hex) <input id="base" value="0x08000000" size="12"></label>
+    <button id="flash" disabled>Flash</button>
   </div>
+
+  <div id="status">Pick a firmware file to start.</div>
   <progress id="progress" value="0" max="1"></progress>
-  <pre id="log"></pre>
+  <pre id="log" aria-live="polite"></pre>
 </main>
 <script>
 const VID = 0x1209, PID = 0xb003;
 const RID_WRITE = 0x41;
 const CMD_WRITE_PAGE = 3, CMD_FINISH_RESET = 4;
 const FLASH_BASE = 0x08000000, FLASH_SIZE = 16 * 1024, PAGE = 64, CHUNK = 8;
-let device;
+
 const $ = id => document.getElementById(id);
-const log = s => $("log").textContent += s + "\n";
+const log = s => { $("log").textContent += `[${new Date().toLocaleTimeString()}] ${s}\n`; $("log").scrollTop = $("log").scrollHeight; };
+const setStatus = (s, cls) => { const e = $("status"); e.textContent = s; e.className = cls || ""; };
+
 const u32 = (b,o) => b[o] | (b[o+1]<<8) | (b[o+2]<<16) | (b[o+3]<<24);
 const put16 = (b,o,v) => { b[o]=v&255; b[o+1]=v>>8; };
 const put32 = (b,o,v) => { b[o]=v&255; b[o+1]=v>>8; b[o+2]=v>>16; b[o+3]=v>>24; };
 
 function checkAddr(addr, len) {
-  if (addr < FLASH_BASE || addr + len > FLASH_BASE + FLASH_SIZE) throw Error(`Address out of CH32V003 flash: 0x${addr.toString(16)}`);
+  if (addr < FLASH_BASE || addr + len > FLASH_BASE + FLASH_SIZE)
+    throw Error(`Address 0x${addr.toString(16)} is outside CH32V003 flash (0x${FLASH_BASE.toString(16)}–0x${(FLASH_BASE+FLASH_SIZE).toString(16)}).`);
 }
 
 function pagesFromRanges(ranges) {
@@ -56,14 +69,15 @@ function pagesFromRanges(ranges) {
 
 function parseBin(buf) {
   const base = Number($("base").value);
-  if ((base & (PAGE - 1)) !== 0) throw Error("BIN base must be 64-byte aligned");
+  if (!Number.isFinite(base)) throw Error("BIN base is not a number.");
+  if ((base & (PAGE - 1)) !== 0) throw Error("BIN base must be 64-byte aligned.");
   return pagesFromRanges([{addr: base, data: new Uint8Array(buf)}]);
 }
 
 function parseElf(buf) {
   const b = new Uint8Array(buf);
-  if (b[0] !== 0x7f || b[1] !== 0x45 || b[2] !== 0x4c || b[3] !== 0x46) throw Error("Bad ELF magic");
-  if (b[4] !== 1 || b[5] !== 1) throw Error("Only ELF32 little-endian is supported");
+  if (b[0] !== 0x7f || b[1] !== 0x45 || b[2] !== 0x4c || b[3] !== 0x46) throw Error("Bad ELF magic.");
+  if (b[4] !== 1 || b[5] !== 1) throw Error("Only ELF32 little-endian is supported.");
   const phoff = u32(b, 28), phentsize = b[42] | (b[43]<<8), phnum = b[44] | (b[45]<<8);
   const ranges = [];
   for (let i = 0; i < phnum; i++) {
@@ -75,29 +89,23 @@ function parseElf(buf) {
     if (addr < FLASH_BASE && addr < FLASH_SIZE) addr += FLASH_BASE;
     ranges.push({addr, data: b.slice(off, off + filesz)});
   }
-  if (!ranges.length) throw Error("No loadable ELF segments");
+  if (!ranges.length) throw Error("No loadable ELF segments.");
   return pagesFromRanges(ranges);
 }
 
 function parseUf2(buf) {
   const b = new Uint8Array(buf);
-  if (b.length % 512) throw Error("UF2 size must be a multiple of 512");
+  if (b.length % 512) throw Error("UF2 size must be a multiple of 512.");
   const ranges = [];
   for (let o = 0; o < b.length; o += 512) {
-    if (u32(b,o) !== 0x0a324655 || u32(b,o+4) !== 0x9e5d5157 || u32(b,o+508) !== 0x0ab16f30) throw Error("Bad UF2 magic");
+    if (u32(b,o) !== 0x0a324655 || u32(b,o+4) !== 0x9e5d5157 || u32(b,o+508) !== 0x0ab16f30)
+      throw Error("Bad UF2 magic.");
     const flags = u32(b,o+8), addr = u32(b,o+12), len = u32(b,o+16);
     if (flags & 1) continue;
-    if (len > 256) throw Error("UF2 payload too large");
+    if (len > 256) throw Error("UF2 payload too large.");
     ranges.push({addr, data: b.slice(o + 32, o + 32 + len)});
   }
   return pagesFromRanges(ranges);
-}
-
-async function send(cmd, addr, data = new Uint8Array()) {
-  const r = new Uint8Array(13);
-  r[0] = cmd; put32(r,1,addr); r.set(data, 5);
-  await device.sendFeatureReport(RID_WRITE, r);
-  await new Promise(resolve => setTimeout(resolve, 8));
 }
 
 async function getPages(file) {
@@ -108,30 +116,99 @@ async function getPages(file) {
   return parseBin(buf);
 }
 
-$("connect").onclick = async () => {
-  [device] = await navigator.hid.requestDevice({filters:[{vendorId:VID, productId:PID}]});
-  if (!device) return;
-  await device.open();
-  log(`Connected: ${device.productName || "CH32V003 HID bootloader"}`);
-};
+async function send(cmd, addr, data = new Uint8Array()) {
+  const r = new Uint8Array(13);
+  r[0] = cmd; put32(r,1,addr); r.set(data, 5);
+  await device.sendFeatureReport(RID_WRITE, r);
+  await new Promise(resolve => setTimeout(resolve, 8));
+}
 
-$("flash").onclick = async () => {
-  if (!device?.opened) throw Error("Connect first");
-  const file = $("file").files[0];
-  if (!file) throw Error("Choose a firmware file");
-  const pages = await getPages(file);
-  log(`Prepared ${pages.length} flash pages from ${file.name}`);
-  $("progress").max = pages.length * (PAGE / CHUNK);
-  $("progress").value = 0;
-  for (const p of pages) {
-    for (let off = 0; off < PAGE; off += CHUNK) {
-      await send(CMD_WRITE_PAGE, p.addr + off, p.data.slice(off, off + CHUNK));
-      $("progress").value++;
-    }
-    log(`Wrote 0x${p.addr.toString(16)}`);
+let device = null;
+let pages = null;
+let flashing = false;
+
+async function acquireDevice() {
+  if (!navigator.hid) throw Error("WebHID is not available. Use Chrome, Edge, or Opera.");
+  if (device && device.opened) return device;
+  const known = (await navigator.hid.getDevices()).find(d => d.vendorId === VID && d.productId === PID);
+  if (known) {
+    device = known;
+    if (!device.opened) await device.open();
+    log(`Reusing previously authorized device (${device.productName || "CH32V003 HID bootloader"}).`);
+    return device;
   }
-  await send(CMD_FINISH_RESET, 0);
-  log("Done");
-};
+  setStatus("Opening device picker. If your CH32V003 isn't listed, reset it now — the bootloader is only enumerable briefly.");
+  log("No previously authorized device. Opening the browser device picker.");
+  const [picked] = await navigator.hid.requestDevice({filters: [{vendorId: VID, productId: PID}]});
+  if (!picked) throw Error("No device selected in the picker.");
+  device = picked;
+  await device.open();
+  return device;
+}
+
+$("file").addEventListener("change", async () => {
+  const f = $("file").files[0];
+  if (!f) {
+    pages = null; $("flash").disabled = true;
+    setStatus("Pick a firmware file to start.");
+    return;
+  }
+  setStatus(`Parsing ${f.name}…`);
+  try {
+    pages = await getPages(f);
+    const totalBytes = pages.reduce((s,p) => s + p.data.length, 0);
+    setStatus(`Ready: ${pages.length} page(s), ${totalBytes} B, from 0x${pages[0].addr.toString(16)}.`, "ok");
+    $("flash").disabled = false;
+    log(`Parsed ${f.name}: ${pages.length} pages, ${totalBytes} B, range 0x${pages[0].addr.toString(16)}–0x${(pages[pages.length-1].addr + PAGE - 1).toString(16)}.`);
+  } catch (e) {
+    pages = null; $("flash").disabled = true;
+    setStatus(e.message, "err");
+    log(`Parse error: ${e.message}`);
+  }
+});
+
+if (navigator.hid) {
+  navigator.hid.addEventListener("disconnect", (ev) => {
+    if (device && ev.device === device) {
+      device = null;
+      log(flashing ? "Device disconnected during flash." : "Device disconnected (the chip rebooted).");
+    }
+  });
+  navigator.hid.addEventListener("connect", (ev) => {
+    if (ev.device.vendorId === VID && ev.device.productId === PID)
+      log(`Device connected: ${ev.device.productName || "CH32V003 HID bootloader"}.`);
+  });
+}
+
+$("flash").addEventListener("click", async () => {
+  if (flashing || !pages) return;
+  flashing = true; $("flash").disabled = true;
+  setStatus("Connecting…");
+  log("--- Flash started ---");
+  try {
+    await acquireDevice();
+    log(`Connected to ${device.productName || "CH32V003 HID bootloader"}.`);
+    setStatus("Writing flash…");
+    $("progress").max = pages.length * (PAGE / CHUNK);
+    $("progress").value = 0;
+    for (const p of pages) {
+      for (let off = 0; off < PAGE; off += CHUNK) {
+        await send(CMD_WRITE_PAGE, p.addr + off, p.data.slice(off, off + CHUNK));
+        $("progress").value++;
+      }
+      log(`Wrote page at 0x${p.addr.toString(16)}.`);
+    }
+    log("Sending reset command.");
+    await send(CMD_FINISH_RESET, 0);
+    setStatus("Done. The chip is rebooting into the user app.", "ok");
+    log("Done.");
+  } catch (e) {
+    setStatus(e.message, "err");
+    log(`Error: ${e.message}`);
+  } finally {
+    flashing = false;
+    $("flash").disabled = !pages;
+  }
+});
 </script>
 </html>
