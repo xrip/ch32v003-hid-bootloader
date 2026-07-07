@@ -1,5 +1,39 @@
-#ifndef CH32FUN_H
-#define CH32FUN_H
+#ifndef BOOTLOADER_H
+#define BOOTLOADER_H
+
+/* ============================================================
+ * rv003usb configuration (vendor feature flags)
+ * ============================================================ */
+
+#define FUNCONF_SYSTICK_USE_HCLK 1
+
+#define RV003USB_HID_FEATURES 1
+#define RV003USB_SUPPORT_CONTROL_OUT 0
+#define RV003USB_USE_REBOOT_FEATURE_REPORT 0
+#define RV003USB_HANDLE_IN_REQUEST 0
+#define RV003USB_HANDLE_USER_DATA 0
+#define RV003USB_OTHER_CONTROL 0
+#define RV003USB_EVENT_DEBUGGING 0
+#define RV003USB_DEBUG_TIMING 0
+#define RV003USB_CUSTOM_C 0
+#define RV003USB_USB_TERMINAL 0
+#define RV003USB_BOOTLOADER 0
+#define RV003USB_OPTIMIZE_FLASH 1
+
+/* ============================================================
+ * USB pin and endpoint configuration
+ * ============================================================ */
+
+#define ENDPOINTS 2
+
+#define USB_PORT D
+#define USB_PIN_DP 3
+#define USB_PIN_DM 4
+#define USB_PIN_DPU 5
+
+/* ============================================================
+ * Register base addresses
+ * ============================================================ */
 
 #define RCC_BASE        0x40021000
 #define FLASH_R_BASE    0x40022000
@@ -7,12 +41,21 @@
 #define TIM1_BASE       0x40012C00
 
 #define GPIOD_BASE      0x40011400
+
+/* ============================================================
+ * Peripheral pointers (usable in C; inert in asm)
+ * ============================================================ */
+
 #define GPIOD           ((GPIO_TypeDef *)GPIOD_BASE)
 #define AFIO            ((AFIO_TypeDef *)0x40010000)
 #define EXTI            ((EXTI_TypeDef *)EXTI_BASE)
 #define RCC             ((RCC_TypeDef *)RCC_BASE)
 #define FLASH           ((FLASH_TypeDef *)FLASH_R_BASE)
 #define PFIC            ((PFIC_TypeDef *)0xE000E000)
+
+/* ============================================================
+ * Peripheral bit / mode defines
+ * ============================================================ */
 
 #define RCC_APB2Periph_GPIOD 0x00000020
 #define RCC_APB2Periph_AFIO  0x00000001
@@ -28,12 +71,17 @@
 #define FLASH_KEY2 0xCDEF89AB
 #define CR_LOCK_Set (1 << 7)
 
+/* RV32E compressed-load/store helpers used by rv003usb.S */
 #define XW_C_LBU(rd, rs, imm) lbu rd, imm(rs)
 #define XW_C_LHU(rd, rs, imm) lhu rd, imm(rs)
 #define XW_C_SB(rs, rd, imm) sb rs, imm(rd)
 
 #ifndef __ASSEMBLER__
 #include <stdint.h>
+
+/* ============================================================
+ * Peripheral register layouts
+ * ============================================================ */
 
 typedef struct {
     volatile uint32_t CFGLR;
@@ -107,10 +155,28 @@ typedef struct {
     volatile uint32_t SCTLR;
 } PFIC_TypeDef;
 
+/* ============================================================
+ * USB descriptor list (rv003usb optional API)
+ * ============================================================ */
+
+struct descriptor_list_struct {
+    uint32_t lIndexValue;
+    const uint8_t *addr;
+    uint16_t length;
+};
+
+extern const struct descriptor_list_struct descriptor_list[];
+
+/* ============================================================
+ * Inline helpers
+ * ============================================================ */
+
 static inline void NVIC_EnableIRQ(int irq) {
     PFIC->IENR[((uint32_t)irq) >> 5] = 1u << (((uint32_t)irq) & 31u);
 }
 
-#endif
+#endif /* __ASSEMBLER__ */
 
-#endif
+#define DESCRIPTOR_LIST_ENTRIES 0
+
+#endif /* BOOTLOADER_H */

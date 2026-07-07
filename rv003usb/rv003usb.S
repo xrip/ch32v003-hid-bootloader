@@ -1,4 +1,4 @@
-#include "ch32fun.h"
+#include "bootloader.h"
 #include "rv003usb.h"
 
 #define CFGLR_OFFSET 0

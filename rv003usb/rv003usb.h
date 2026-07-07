@@ -1,8 +1,7 @@
 #ifndef _RV003USB_H
 #define _RV003USB_H
 
-#include "funconfig.h"
-#include "usb_config.h"
+#include "bootloader.h"
 
 // Fallback and issue warning for users with the swapped pin assignments of previous versions
 #if defined(USB_DM) || defined(USB_DP)

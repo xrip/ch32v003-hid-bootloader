@@ -3,11 +3,11 @@
 #define INSTANCE_DESCRIPTORS 1
 
 #include "rv003usb.h"
-#include "usb_config.h"
+#include "bootloader.h"
 
 #if !defined(RV003USB_CUSTOM_C) || RV003USB_CUSTOM_C == 0
 
-#include "ch32fun.h"
+#include "bootloader.h"
 
 #if RV003USB_USB_TERMINAL
 #if FUNCONF_USE_DEBUGPRINTF

@@ -1,5 +1,5 @@
 #include <stdint.h>
-#include "ch32fun.h"
+#include "bootloader.h"
 #include "rv003usb.h"
 
 #define RID_WRITE  0x41
