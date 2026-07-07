@@ -10,18 +10,18 @@ the chip's 1920-byte boot area.
 
 ## Building
 
-The expected toolchain is the xPack RISC-V GCC toolchain. Install it, or point
-`RISCV_TOOLCHAIN_PATH` at its root directory, then:
+The expected toolchain is the xPack RISC-V GCC toolchain. Put its `bin/` on your
+`PATH`, then:
 
 ```powershell
-cmake -S . -B build -G Ninja "-DCMAKE_TOOLCHAIN_FILE=$PWD/toolchain-riscv-none-elf.cmake"
+cmake -S . -B build -G Ninja
 cmake --build build
 ```
 
 The build emits:
 
-- `build/ch32v003_hid_bootloader.elf`
-- `build/ch32v003_hid_bootloader.bin`
+- `bin/ch32v003_hid_bootloader.elf`
+- `bin/ch32v003_hid_bootloader.bin`
 
 It fails if the binary exceeds the CH32V003 boot-area limit of 1920 bytes.
 
