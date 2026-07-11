@@ -9,7 +9,8 @@ browser over WebHID, with no native host tooling required.
 
 The CH32V003 has no hardware USB peripheral. The bootloader bit-bangs a
 low-speed HID stack, which is small enough to live in the 1920-byte
-boot area.
+boot area. It uses HID feature reports over control endpoint 0; no
+additional USB endpoints are needed.
 
 ## Building
 
@@ -70,15 +71,15 @@ application.
 
 The bootloader fits in a **1920-byte BOOT area** on the CH32V003 (remapped
 to `0x00000000` on reset). The linker script enforces this: overflow
-fails the link. The current binary is **1792 / 1920 B (93 %)**.
+fails the link. The current binary is **1676 / 1920 B (87 %)**.
 
-The code is deliberately terse — branchless selects, `process_report`
-cut down to what it needs. `-nostdlib` acts as a guardrail: a stray
+The code is deliberately terse. `-nostdlib` acts as a guardrail: a stray
 `int * int` would fail the link instead of silently pulling `__mulsi3`
-(~+36 B) into the image. Beyond that, a handful of small wins added up:
-`boot_user` dedup + `noreturn` (−36 B), `flash_wait` force-inlined
-(−28 B), direct-writes to `GPIOD->CFGLR` and `RCC->APB2PCENR` (−12 B
-combined), dropping the descriptor `wLength` clamp (−20 B).
+(~+36 B) into the image. The main size reductions are a control-endpoint-0
+only USB path, one packed descriptor table, a 16-byte report buffer with
+word copies, and the small `process_payload` command handler. The build
+also force-inlines `flash_wait`, writes the needed peripheral registers
+directly, and keeps `boot_user` as one stable handoff point under LTO.
 
 Library audit: zero libgcc/libc symbols. The rv003usb ISR is at its
 feature floor — every optional macro is off and `--gc-sections` removes
