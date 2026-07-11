@@ -1,3 +1,5 @@
+/* Copyright (c) 2026, Ilya Maslennikov aka xrip */
+
 #include <stdint.h>
 #include "bootloader.h"
 #include "rv003usb.h"
