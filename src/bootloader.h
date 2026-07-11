@@ -24,7 +24,7 @@
  * USB pin and endpoint configuration
  * ============================================================ */
 
-#define ENDPOINTS 2
+#define ENDPOINTS 1
 
 #define USB_PORT D
 #define USB_PIN_DP 3

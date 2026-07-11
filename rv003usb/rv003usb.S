@@ -42,9 +42,7 @@
 .global rv003usb_internal_data
 .global rv003usb_handle_packet
 .global usb_send_data
-.global usb_send_empty
 .global main
-.global always0
 
 /* Register map
 	zero, ra, sp, gp, tp, t0, t1, t2
@@ -478,8 +476,7 @@ may_be_a_token:
 	andi a0, a2, 0x7f // addr
 	c.srli a2, 7
 	c.andi a2, 0xf    // endp
-	li s0, ENDPOINTS
-	bgeu a2, s0, done_usb_message // Make sure < ENDPOINTS
+	c.bnez a2, done_usb_message // bootloader implements endpoint 0 only
 	c.beqz a0,  yes_check_tokens
 	// Otherwise, we might have our assigned address.
 	XW_C_LBU(s0, a4, MY_ADDRESS_OFFSET_BYTES);	//	lbu s0, MY_ADDRESS_OFFSET_BYTES(a4)
@@ -487,9 +484,11 @@ may_be_a_token:
 yes_check_tokens:
 #if !defined(CH32V00x) || !CH32V00x
 	addi a5, a5, (0b01001011-0b10000111)
-	c.beqz a5, usb_pid_handle_out
+	c.beqz a5, done_usb_message_in // OUT on EP0 only needs no state update
 	c.addi a5, (0b10000111-0b10010110)
-	c.beqz a5, usb_pid_handle_in
+	c.bnez a5, 1f
+	c.j usb_pid_handle_in
+1:
 	c.addi a5, (0b10010110-0b10110100)
 	c.beqz a5, usb_pid_handle_setup
 
@@ -525,10 +524,13 @@ crc_for_tokens_would_be_bad_maybe_data:
 	addi a5, a5, (0b01001011-0b11000011)
 	c.li a2, 0
 #if !defined(CH32V00x) || !CH32V00x
-	c.beqz a5, usb_pid_handle_data
+	c.bnez a5, 1f
+	c.j usb_pid_handle_data
+1:
 	c.addi a5, (0b11000011-0b11010010)
 	c.li a2, 1
-	c.beqz a5, usb_pid_handle_data
+	c.bnez a5, done_usb_message_in
+	c.j usb_pid_handle_data
 #else
 	lui t1, %hi(usb_pid_handle_data)
 	addi t1, t1, %lo(usb_pid_handle_data)
@@ -545,7 +547,6 @@ done_usb_message:
 done_usb_message_in:
 
 	lw s0, 24(sp)
-	lw s1, 28(sp)
 	lw t0, 32(sp)
 	lw t1, 36(sp)
 	lw t2, 40(sp)
@@ -606,18 +607,14 @@ void usb_pid_handle_ack( uint32_t dummy, uint8_t * data, uint32_t dummy1, uint32
 */
 
 usb_pid_handle_ack:
-	c.lw a2, 0(a4) //ist->current_endpoint -> endp;
-	c.slli a2, 5
-	c.add a2, a4
-
-	c.lw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a2) // toggle_in=!toggle_in
+	c.lw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a4) // endpoint 0 only
 	c.li a1, 1
 	c.xor a0, a1
-	c.sw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a2)
+	c.sw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a4)
 
-	c.lw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a2) // count_in
+	c.lw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a4)
 	c.addi a0, 1
-	c.sw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a2)
+	c.sw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a4)
 
 #if defined(CH32V00x) && CH32V00x
 	ret
@@ -638,16 +635,9 @@ void usb_pid_handle_setup( uint32_t addr, uint8_t * data, uint32_t endp, uint32_
 	ist->setup_request = 1;
 }*/
 usb_pid_handle_setup:
-	c.sw a2, 0(a4) // ist->current_endpoint = endp
 	c.li a1, 1
-	c.sw a1, SETUP_REQUEST_OFFSET(a4) //ist->setup_request = 1;
-	c.slli a2, 3+2
-	c.add a2, a4
-	c.sw a1, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a2) //e->toggle_in = 1;
-	c.li a1, 0
-	c.sw a1, (ENDP_OFFSET+EP_COUNT_OFFSET)(a2)  //e->count = 0;
-	c.sw a1, (ENDP_OFFSET+EP_OPAQUE_OFFSET)(a2)  //e->opaque = 0;
-	c.sw a1, (ENDP_OFFSET+EP_TOGGLE_OUT_OFFSET)(a2) //e->toggle_out = 0;
+	c.sw a1, SETUP_REQUEST_OFFSET(a4)
+	c.sw a1, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a4)
 
 #if defined(CH32V00x) && CH32V00x
 	ret
@@ -657,16 +647,10 @@ usb_pid_handle_setup:
 
 #endif
 
-//We need to handle this here because we could have an interrupt in the middle of a control or big transfer.
-//This will correctly swap back the endpoint.
-usb_pid_handle_out:
-	//void usb_pid_handle_out( uint32_t addr, uint8_t * data, uint32_t endp, uint32_t unused, struct rv003usb_internal * ist )	
-	//sb a2, 0(a4) //ist->current_endpoint = endp;
-	XW_C_SB( a2, a4, 0 ); // current_endpoint = endp
 #if defined(CH32V00x) && CH32V00x
+// CH32V00x token dispatch still calls a separate OUT stub.
+usb_pid_handle_out:
 	ret
-#else
-	c.j done_usb_message_in
 #endif
 
 
@@ -680,7 +664,6 @@ handle_se0_keepalive:
 	c.lw a2, SYSTICK_CNT_OFFSET(a0) //this cycle count, in SYSTICK_CNT
 	c.sw a2, LAST_SE0_OFFSET(a4) //store it back to last_se0_cyccount
 	c.sub a2, a1
-	c.sw a2, DELTA_SE0_OFFSET(a4) //record delta_se0_cyccount
 
 	li a1, 48000
 	c.sub a2, a1
@@ -736,12 +719,9 @@ handle_se0_keepalive:
 #endif
 
 .balign 4
-//void usb_send_empty( uint32_t token );
-usb_send_empty:
-	c.mv a3, a0
-	la a0, always0
-	li a1, 2
-	c.mv a2, a1
+// Keep usb_send_data at +2 relative to a 4-byte boundary, matching the
+// original sender layout without retaining the unused empty-send stub.
+	c.nop
 //void usb_send_data( uint8_t * data, uint32_t length, uint32_t poly_function, uint32_t token );
 usb_send_data:
 	addi sp,sp,-16
@@ -1077,8 +1057,6 @@ InterruptVector:
 // CAREFUL THIS MUST BE EXACTLY AT 0x50
 . = 0x52 // Weird...  I don't know why this has to be 0x52, for it to be at 0x50.
 	.word EXTI7_0_IRQHandler            /* EXTI Line 7..0 */
-always0:
-	.byte 0x00 // Automatically expands out to 4 bytes.
 
 .align 0
 .balign 0
@@ -1086,7 +1064,5 @@ always0:
 #else
 
 .balign 4
-always0:
-	.word 0x00
 
 #endif
