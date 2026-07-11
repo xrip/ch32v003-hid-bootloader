@@ -54,13 +54,20 @@ jobs:
 
       - name: Check whether firmware-affecting files changed
         id: srccheck
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
         run: |
           set -e
-          if git rev-parse HEAD^ >/dev/null 2>&1; then
-            changed=$(git diff --name-only HEAD^ HEAD)
-          else
-            # Root commit (no parent): everything is new, treat as firmware-touching.
+          # Diff the full pushed range (before..after), not just HEAD^..HEAD.
+          # When several commits are pushed at once, HEAD^..HEAD only sees the
+          # tip commit and silently swallows firmware changes in intermediate
+          # commits. The release job gates on event == 'push', so before/after
+          # are always populated; a zero SHA means the branch's first push.
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
             changed=$(git ls-files)
+          else
+            changed=$(git diff --name-only "$BEFORE" "$AFTER")
           fi
           hit=$(printf '%s\n' "$changed" \
             | grep -E '^(src/|rv003usb/|linker\.ld$|CMakeLists\.txt$)' || true)
