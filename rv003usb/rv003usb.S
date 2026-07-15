@@ -17,11 +17,11 @@
 // It seems that adding extra delay per each branching instruction solves the most of the timing issues, but not all.
 #if !defined(CH32V00x) || !CH32V00x
 // This is 6 * n + 3 cycles
-#define nx6p3delay( n, freereg ) li freereg, ((n)+1); 1: c.addi freereg, -1; c.bnez freereg, 1b
+#define nx6p3delay(delay_units, scratch_register) li scratch_register, ((delay_units)+1); 1: c.addi scratch_register, -1; c.bnez scratch_register, 1b
 // No delay needed fo CH32V003, so it's empty
 #define VOOXDELAY
 #else
-#define nx6p3delay( n, freereg ) li freereg, ((n)+1); 1: c.addi freereg, -1; .word 0x00000013; c.bnez freereg, 1b
+#define nx6p3delay(delay_units, scratch_register) li scratch_register, ((delay_units)+1); 1: c.addi scratch_register, -1; .word 0x00000013; c.bnez scratch_register, 1b
 #define VOOXDELAY .word 0x00000013 // addi zero, zero, 0
 #endif
 
@@ -42,7 +42,9 @@
 .global rv003usb_internal_data
 .global rv003usb_handle_packet
 .global usb_send_data
+.global usb_send_empty
 .global main
+.global always0
 
 /* Register map
 	zero, ra, sp, gp, tp, t0, t1, t2
@@ -77,7 +79,7 @@ EXTI7_0_IRQHandler:
 	la a1, 0x40010414 //	R32_EXTI_INTFR
 	c.lw a2, 0(a1)
 	c.andi a2, USB_DMASK
-	c.beqz a2, another_interrupt_check
+	c.beqz a2, check_additional_interrupt
 #endif
 
 	SAVE_DEBUG_MARKER( 48 );
@@ -98,22 +100,22 @@ EXTI7_0_IRQHandler:
 #endif
 
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, syncout
+	c.lw a0, INDR_OFFSET(a5); c.andi a0, USB_DMASK; bne a0, a1, usb_sync_complete
 	VOOXDELAY
-	c.j syncout
-syncout:
+	c.j usb_sync_complete
+usb_sync_complete:
 	sw	s0, 24(sp)
 	li a2, 0
 	sw	t0, 32(sp)  // XXX NOTE: This is actually unused register - remove some day?
@@ -136,7 +138,7 @@ preamble_loop:
 	c.lw a0, INDR_OFFSET(a5);
 	c.andi a0, USB_DMASK; // Can just change to andi without anything extra
 	VOOXDELAY
-	c.beqz a0, done_usb_message // SE0 here?
+	c.beqz a0, finish_received_usb_message // SE0 here?
 	c.xor a0, a1;
 	c.xor a1, a0; // Recover a1.
 	j 1f; 1: // 4 cycles?
@@ -226,7 +228,7 @@ packet_type_loop:
 	// VOOXDELAY
 	c.lw a0, INDR_OFFSET(a5);
 	c.andi a0, USB_DMASK; // Possible to convert to non-compressed version
-	c.beqz a0, done_usb_message // Not se0 complete, that can't happen here and be valid.
+	c.beqz a0, finish_received_usb_message // Not se0 complete, that can't happen here and be valid.
 	c.xor a0, a1;
 	c.xor a1, a0; // Recover a1, for next cycle
 	// a0 = 00 for 1 and 11 for 0
@@ -358,7 +360,7 @@ handle_zero_bit:
 #endif
 	c.nop
 	c.bnez s1, bit_process // + 4 cycles
-	c.j done_usb_message
+	c.j finish_received_usb_message
 
 
 .balign 4
@@ -389,7 +391,7 @@ handle_one_bit:
 #endif
 	c.nop
 	c.bnez s1, bit_process // + 4 cycles
-	c.j done_usb_message
+	c.j finish_received_usb_message
 
 handle_bit_stuff:
 	// We want to wait a little bit, then read another byte, and make
@@ -410,7 +412,7 @@ not_is_end_of_byte_and_bit_stuffed:
 	// If a0 is a 0 then that's bad, we just did a bit stuff
         //   and a0 == 0 means there was no signal transition
 	VOOXDELAY
-	c.beqz a0, done_usb_message
+	c.beqz a0, finish_received_usb_message
 
 	// Reset bit stuff, delay, then continue onto the next actual bit
 	c.li s0, 6;
@@ -426,7 +428,7 @@ se0_complete:
 	// This is triggered when we finished getting a packet.
 	andi a0, s1, 7; // Make sure we received an even number of bytes.
 	VOOXDELAY
-	c.bnez a0, done_usb_message
+	c.bnez a0, finish_received_usb_message
 
 
 
@@ -445,7 +447,7 @@ se0_complete:
 	// 1101 => 10110100 => SETUP    (OK)
 
 	// a0 contains first 4 bytes.
-	la ra, done_usb_message_in // Common return address for all function calls.
+	la ra, finish_usb_handler // Common return address for all function calls.
 
 	// For ACK don't worry about CRC.
 	addi a5, a0, -0b01001011
@@ -466,9 +468,9 @@ se0_complete:
 	c.jr t1
 	1:
 #endif
-	c.bnez a3, crc_for_tokens_would_be_bad_maybe_data
+	c.bnez a3, validate_data_packet_crc
 
-may_be_a_token:
+handle_token_packet:
 	// Our CRC is 0, so we might be a token.
 
 	// Do token-y things.
@@ -476,23 +478,22 @@ may_be_a_token:
 	andi a0, a2, 0x7f // addr
 	c.srli a2, 7
 	c.andi a2, 0xf    // endp
-	c.bnez a2, done_usb_message // bootloader implements endpoint 0 only
-	c.beqz a0,  yes_check_tokens
+	c.li s0, ENDPOINTS
+	bgeu a2, s0, finish_received_usb_message
+	c.beqz a0, dispatch_token_pid
 	// Otherwise, we might have our assigned address.
 	XW_C_LBU(s0, a4, MY_ADDRESS_OFFSET_BYTES);	//	lbu s0, MY_ADDRESS_OFFSET_BYTES(a4)
-	bne s0, a0, done_usb_message // addr != 0 && addr != ours.
-yes_check_tokens:
+	bne s0, a0, finish_received_usb_message // addr != 0 && addr != ours.
+dispatch_token_pid:
 #if !defined(CH32V00x) || !CH32V00x
 	addi a5, a5, (0b01001011-0b10000111)
-	c.beqz a5, done_usb_message_in // OUT on EP0 only needs no state update
+	c.beqz a5, usb_pid_handle_out
 	c.addi a5, (0b10000111-0b10010110)
-	c.bnez a5, 1f
-	c.j usb_pid_handle_in
-1:
+	c.beqz a5, usb_pid_handle_in
 	c.addi a5, (0b10010110-0b10110100)
 	c.beqz a5, usb_pid_handle_setup
 
-	c.j done_usb_message_in
+	c.j finish_usb_handler
 #else
 	addi a5, a5, (0b01001011-0b10000111)
 	c.bnez a5, 1f
@@ -507,30 +508,27 @@ yes_check_tokens:
 	c.jr t1
 	1:
 	c.addi a5, (0b10010110-0b10110100)
-	c.bnez a5, done_usb_message_in
+	c.bnez a5, finish_usb_handler
 	lui t1, %hi(usb_pid_handle_setup)
 	addi t1, t1, %lo(usb_pid_handle_setup)
 	c.jr t1
 #endif
 
 	// CRC is nonzero. (Good for Data packets)
-crc_for_tokens_would_be_bad_maybe_data:
+validate_data_packet_crc:
 	li s0, 0xb001  // UGH: You can't use the CRC16 in reverse :(
 	c.sub a3, s0
-	c.bnez a3, done_usb_message_in
+	c.bnez a3, finish_usb_handler
 	// Good CRC!!
 	sub a3, t2, a1 //a3 = # of bytes read..
 	c.addi a3, 1
 	addi a5, a5, (0b01001011-0b11000011)
 	c.li a2, 0
 #if !defined(CH32V00x) || !CH32V00x
-	c.bnez a5, 1f
-	c.j usb_pid_handle_data
-1:
+	c.beqz a5, usb_pid_handle_data
 	c.addi a5, (0b11000011-0b11010010)
 	c.li a2, 1
-	c.bnez a5, done_usb_message_in
-	c.j usb_pid_handle_data
+	c.beqz a5, usb_pid_handle_data
 #else
 	lui t1, %hi(usb_pid_handle_data)
 	addi t1, t1, %lo(usb_pid_handle_data)
@@ -539,31 +537,32 @@ crc_for_tokens_would_be_bad_maybe_data:
 	1:
 	c.addi a5, (0b11000011-0b11010010)
 	c.li a2, 1
-	c.bnez a5, done_usb_message_in
+	c.bnez a5, finish_usb_handler
 	c.jr t1
 #endif
 
-done_usb_message:
-done_usb_message_in:
+finish_received_usb_message:
+finish_usb_handler:
 
 	lw s0, 24(sp)
+	lw s1, 28(sp)
 	lw t0, 32(sp)
 	lw t1, 36(sp)
 	lw t2, 40(sp)
 	lw ra, 52(sp)
 
 #if defined (RV003_ADD_EXTI_MASK) && defined (RV003_ADD_EXTI_HANDLER)
-another_interrupt_check:
+check_additional_interrupt:
 	la a5, EXTI_BASE + 20
 	lw a0, 0(a5)
 	andi a0, a0, RV003_ADD_EXTI_MASK
-	c.beqz a0, ret_from_se0
+	c.beqz a0, restore_usb_interrupt_context
 
-another_interrupt_handler:
+handle_additional_interrupt:
 	RV003_ADD_EXTI_HANDLER
 #endif
 
-ret_from_se0:
+restore_usb_interrupt_context:
 	lw s1, 28(sp)
 	RESTORE_DEBUG_MARKER(48)
 	lw a2, 8(sp)
@@ -607,19 +606,23 @@ void usb_pid_handle_ack( uint32_t dummy, uint8_t * data, uint32_t dummy1, uint32
 */
 
 usb_pid_handle_ack:
-	c.lw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a4) // endpoint 0 only
+	c.lw a2, 0(a4) // ist->current_endpoint -> endp
+	c.slli a2, 5
+	c.add a2, a4
+
+	c.lw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a2)
 	c.li a1, 1
 	c.xor a0, a1
-	c.sw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a4)
+	c.sw a0, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a2)
 
-	c.lw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a4)
+	c.lw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a2)
 	c.addi a0, 1
-	c.sw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a4)
+	c.sw a0, (ENDP_OFFSET+EP_COUNT_OFFSET)(a2)
 
 #if defined(CH32V00x) && CH32V00x
 	ret
 #else
-	c.j done_usb_message_in
+	c.j finish_usb_handler
 #endif
 
 /*
@@ -635,22 +638,31 @@ void usb_pid_handle_setup( uint32_t addr, uint8_t * data, uint32_t endp, uint32_
 	ist->setup_request = 1;
 }*/
 usb_pid_handle_setup:
+	c.sw a2, 0(a4) // ist->current_endpoint = endp
 	c.li a1, 1
 	c.sw a1, SETUP_REQUEST_OFFSET(a4)
-	c.sw a1, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a4)
+	c.slli a2, 5
+	c.add a2, a4
+	c.sw a1, (ENDP_OFFSET+EP_TOGGLE_IN_OFFSET)(a2)
+	c.li a1, 0
+	c.sw a1, (ENDP_OFFSET+EP_COUNT_OFFSET)(a2)
+	c.sw a1, (ENDP_OFFSET+EP_OPAQUE_OFFSET)(a2)
+	c.sw a1, (ENDP_OFFSET+EP_TOGGLE_OUT_OFFSET)(a2)
 
 #if defined(CH32V00x) && CH32V00x
 	ret
 #else
-	c.j done_usb_message_in	
+	c.j finish_usb_handler
 #endif
 
 #endif
 
-#if defined(CH32V00x) && CH32V00x
-// CH32V00x token dispatch still calls a separate OUT stub.
 usb_pid_handle_out:
+	XW_C_SB( a2, a4, 0 ) // ist->current_endpoint = endp
+#if defined(CH32V00x) && CH32V00x
 	ret
+#else
+	c.j finish_usb_handler
 #endif
 
 
@@ -664,6 +676,7 @@ handle_se0_keepalive:
 	c.lw a2, SYSTICK_CNT_OFFSET(a0) //this cycle count, in SYSTICK_CNT
 	c.sw a2, LAST_SE0_OFFSET(a4) //store it back to last_se0_cyccount
 	c.sub a2, a1
+	c.sw a2, DELTA_SE0_OFFSET(a4)
 
 	li a1, 48000
 	c.sub a2, a1
@@ -672,9 +685,9 @@ handle_se0_keepalive:
 	// Make sure we aren't in left field.
 	li a5, 4000
 #if !defined(CH32V00x) || !CH32V00x
-	bge a2, a5, ret_from_se0
+	bge a2, a5, restore_usb_interrupt_context
 	li a5, -4000
-	blt a2, a5, ret_from_se0
+	blt a2, a5, restore_usb_interrupt_context
 #else
 	bge a2, a5, 1f
 	li a5, -4000
@@ -702,11 +715,11 @@ handle_se0_keepalive:
 	sw a0, 0(a4)
 
 #if !defined(CH32V00x) || !CH32V00x
-	j ret_from_se0
+	j restore_usb_interrupt_context
 #else
 	1:
-	auipc t0, %hi(ret_from_se0)
-	addi t0, t0, %lo(ret_from_se0)
+	auipc t0, %hi(restore_usb_interrupt_context)
+	addi t0, t0, %lo(restore_usb_interrupt_context)
 	c.jr t0
 #endif
 
@@ -719,9 +732,12 @@ handle_se0_keepalive:
 #endif
 
 .balign 4
-// Keep usb_send_data at +2 relative to a 4-byte boundary, matching the
-// original sender layout without retaining the unused empty-send stub.
-	c.nop
+//void usb_send_empty( uint32_t token );
+usb_send_empty:
+	c.mv a3, a0
+	la a0, always0
+	li a1, 2
+	c.mv a2, a1
 //void usb_send_data( uint8_t * data, uint32_t length, uint32_t poly_function, uint32_t token );
 usb_send_data:
 	addi sp,sp,-16
@@ -760,10 +776,10 @@ usb_send_data:
 
 	li t0, 0x0000
 	VOOXDELAY
-	c.bnez a2, done_poly_check
+	c.bnez a2, crc_setup_complete
 	li t0, 0xa001
 	li a2, 0xffff
-done_poly_check:
+crc_setup_complete:
 
 	c.slli a1, 3 // bump up one extra to be # of bits
 	mv t2, a1
@@ -829,14 +845,14 @@ pre_and_tok_done_sending_data:
 	//Restore size.
 	mv a1, t2//lw  a1, 12(sp)
 	VOOXDELAY
-	c.beqz a1, no_really_done_sending_data  //No actual payload?  Bail!
+	c.beqz a1, finish_usb_send  //No actual payload?  Bail!
 	c.addi a1, -1
-//	beqz t2, no_really_done_sending_data 
+//	beqz t2, finish_usb_send
 
 	VOOXDELAY
-	bnez t0, done_poly_check2
+	bnez t0, payload_crc_ready
 	li a2, 0xffff
-done_poly_check2:
+payload_crc_ready:
 
 
 	// t0 is used for CRC
@@ -951,7 +967,7 @@ send_end_bit_complete:
 done_sending_data:
 	// BUT WAIT!! MAYBE WE NEED TO CRC!
 	VOOXDELAY
-	beqz t0, no_really_done_sending_data
+	beqz t0, finish_usb_send
 	srli t0, t0, 8 // reset poly - we don't want it anymore.
 	li a1, 7 // Load 8 more bits out
 	VOOXDELAY
@@ -962,7 +978,7 @@ done_sending_data:
 
 
 .balign 4
-no_really_done_sending_data:
+finish_usb_send:
 
 //	c.bnez a2, poly_function  TODO: Uncomment me!
 
@@ -1057,6 +1073,8 @@ InterruptVector:
 // CAREFUL THIS MUST BE EXACTLY AT 0x50
 . = 0x52 // Weird...  I don't know why this has to be 0x52, for it to be at 0x50.
 	.word EXTI7_0_IRQHandler            /* EXTI Line 7..0 */
+always0:
+	.byte 0x00 // Automatically expands out to 4 bytes.
 
 .align 0
 .balign 0
@@ -1064,5 +1082,7 @@ InterruptVector:
 #else
 
 .balign 4
+always0:
+	.word 0x00
 
 #endif

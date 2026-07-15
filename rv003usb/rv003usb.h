@@ -88,7 +88,7 @@ void usb_handle_user_data( struct usb_endpoint * e, int current_endpoint, uint8_
 
 // Note: This checks addr & endp to make sure they are valid.
 void usb_pid_handle_setup( uint32_t addr, uint8_t * data, uint32_t endp, uint32_t unused, struct rv003usb_internal * ist );
-void usb_pid_handle_in( uint32_t addr, const uint8_t * data, uint32_t endp, uint32_t unused, const struct rv003usb_internal * ist );
+void usb_pid_handle_in( uint32_t addr, const uint8_t * data, uint32_t endp, uint32_t unused, struct rv003usb_internal * ist );
 void usb_pid_handle_out( uint32_t addr, uint8_t * data, uint32_t endp, uint32_t unused, struct rv003usb_internal * ist );
 void usb_pid_handle_data( uint32_t this_token, uint8_t * data, uint32_t which_data, uint32_t length, struct rv003usb_internal * ist );
 void usb_pid_handle_ack( uint32_t dummy, uint8_t * data, uint32_t dummy2, uint32_t dummy3, struct rv003usb_internal * ist  );

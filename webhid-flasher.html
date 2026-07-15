@@ -4,55 +4,94 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CH32V003 HID Flasher</title>
 <style>
-body{font:14px system-ui,sans-serif;margin:32px;max-width:880px;color:#1d2228}
-main{display:grid;gap:14px}
-h1{margin:0 0 4px;font-size:20px}
+body{font:14px Inter,ui-sans-serif,system-ui,sans-serif;margin:0;color:#172033;background:linear-gradient(145deg,#f8fafc,#edf4fb);min-height:100vh}
+main{display:grid;gap:16px;max-width:760px;margin:auto;padding:48px 24px}
+h1{margin:0 0 4px;font-size:24px;letter-spacing:-.02em}
+h2{margin:4px 0 2px;font-size:18px}
 .muted{color:#666;font-size:13px}
 .small{font-size:12.5px}
 button,input{font:inherit}
-button{padding:8px 14px;cursor:pointer}
+button{padding:8px 14px;cursor:pointer;transition:background .15s,box-shadow .15s,transform .15s}
 button:disabled{cursor:not-allowed;opacity:.55}
+button:focus-visible,.drop:focus-visible,input:focus-visible{outline:3px solid #93c5fd;outline-offset:2px}
 label{display:grid;gap:4px;font-size:13px}
 .row{display:flex;gap:12px;align-items:end;flex-wrap:wrap}
+.card{display:grid;gap:16px;padding:24px;border:1px solid #dbe4ee;border-radius:14px;background:#fff;box-shadow:0 12px 32px #1e3a5f12}
+.step{width:max-content;padding:4px 9px;border-radius:999px;background:#eaf3ff;color:#1769aa;font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+.drop{display:grid;place-items:center;gap:12px;min-height:170px;padding:28px;border:2px dashed #9fb3c8;border-radius:12px;background:#f8fbff;text-align:center;cursor:pointer;transition:border .15s,background .15s,transform .15s}
+.drop:hover,.drop.drag{border-color:#1769aa;background:#edf6ff;transform:translateY(-1px)}
+.primary{padding:12px 22px;border:0;border-radius:9px;background:#1769aa;color:#fff;font-weight:750;box-shadow:0 6px 16px #1769aa30}
+.primary:hover:not(:disabled){background:#125789;box-shadow:0 8px 20px #1769aa40;transform:translateY(-1px)}
+.secondary{justify-self:start;border:0;background:transparent;color:#1769aa;padding:4px 0;font-weight:650}
+.secondary:hover{text-decoration:underline}
+.summary{padding:13px 15px;border:1px solid #dbe4ee;border-radius:9px;background:#f4f7fa;line-height:1.5;font-weight:650;overflow-wrap:anywhere}
+[hidden]{display:none!important}
 ol.steps{margin:0;padding-left:22px;line-height:1.6}
 ol.steps li{margin:2px 0}
-#status{padding:8px 10px;border-radius:6px;background:#eef2f6;font-weight:600}
+#status{padding:10px 12px;border:1px solid #dbe4ee;border-radius:8px;background:#eef2f6;font-weight:600}
 #status.err{background:#fdecec;color:#8a1f1f}
 #status.ok{background:#e6f4ea;color:#1a6b32}
+.progress-wrap{display:grid;gap:6px}
 progress{width:100%;height:16px}
+.progress-time{display:flex;justify-content:space-between;gap:12px;color:#52606d;font-size:12px;font-variant-numeric:tabular-nums}
 pre{background:#f3f5f7;padding:10px 12px;min-height:180px;max-height:320px;overflow:auto;white-space:pre-wrap;margin:0;font-size:12.5px;line-height:1.45}
+details{border:1px solid #dbe4ee;border-radius:9px;background:#fff;overflow:hidden}
+summary{padding:10px 12px;cursor:pointer;font-weight:650;color:#52606d}
+details pre{border-radius:0}
 code{background:#eef2f6;padding:1px 5px;border-radius:3px;font-size:92%}
+@media(max-width:560px){main{padding:28px 14px}.card{padding:18px}.drop{min-height:145px;padding:20px}}
 </style>
 <main>
   <h1>CH32V003 HID Flasher</h1>
-  <p class="muted">Flashes a <code>.bin</code>, <code>.elf</code>, or <code>.uf2</code> over WebHID. The device enumerates as <code>1209:B003</code>. Requires Chrome, Edge, or Opera.</p>
+  <p class="muted">Flashes a <code>.bin</code>, <code>.elf</code>, or <code>.uf2</code> over WebHID. The device enumerates as <code>1209:BEEF</code>. Requires Chrome, Edge, or Opera.</p>
 
-  <ol class="steps">
-    <li>Pick a firmware file.</li>
-    <li>Click <strong>Flash</strong>.</li>
-    <li>Plug in the CH32V003 (or reset it) — the page detects it and starts flashing automatically.</li>
-  </ol>
-  <p class="muted small">First time only: plug in the board <em>before</em> clicking Flash so your browser can show the one-time permission prompt. After that, the three steps above are all you need.</p>
-
-  <div class="row">
-    <label>Firmware <input id="file" type="file" accept=".bin,.elf,.uf2"></label>
+  <section id="pick-step" class="card">
+    <div class="step">Step 1 of 2</div>
+    <h2>Choose firmware</h2>
+    <div id="drop" class="drop" role="button" tabindex="0">
+      <div><strong>Drop firmware here</strong><br><span class="muted">.bin, .elf, or .uf2</span></div>
+      <button id="choose" class="primary">Choose firmware</button>
+    </div>
+    <input id="file" type="file" accept=".bin,.elf,.uf2" hidden>
     <label>BIN base (hex) <input id="base" value="0x08000000" size="12"></label>
-    <button id="flash" disabled>Flash</button>
-  </div>
+  </section>
+
+  <section id="flash-step" class="card" hidden>
+    <div class="step">Step 2 of 2</div>
+    <h2>Ready to flash</h2>
+    <div id="file-summary" class="summary"></div>
+    <div>
+      <strong>Connect the CH32V003 by USB, then press the button below.</strong>
+      <p class="muted">On first use, Chrome will ask you to select the <code>CH32V</code> device. This access is kept for later updates.</p>
+    </div>
+    <button id="flash" class="primary">Flash CH32V003</button>
+    <button id="change" class="secondary">Choose another firmware</button>
+  </section>
 
   <div id="status">Pick a firmware file to start.</div>
-  <progress id="progress" value="0" max="1"></progress>
-  <pre id="log" aria-live="polite"></pre>
+  <div id="progress-wrap" class="progress-wrap" hidden>
+    <progress id="progress" value="0" max="1"></progress>
+    <div class="progress-time"><span id="elapsed">Elapsed: 0s</span><span id="remaining">Estimating time…</span></div>
+  </div>
+  <details><summary>Debug log</summary><pre id="log" aria-live="polite"></pre></details>
 </main>
 <script>
-const VID = 0x1209, PID = 0xb003;
-const RID_WRITE = 0x41;
+const VID = 0x1209, PID = 0xbeef;
+const RID_WRITE = 0;
 const CMD_WRITE_PAGE = 3, CMD_FINISH_RESET = 4;
-const FLASH_BASE = 0x08000000, FLASH_SIZE = 16 * 1024, PAGE = 64, CHUNK = 8;
+const FLASH_BASE = 0x08000000, FLASH_SIZE = 16 * 1024, PAGE = 64, CHUNK = 8, ERASE = 1024;
+const WRITE_DELAY_MS = 20, ERASE_DELAY_MS = 80;
 
 const $ = id => document.getElementById(id);
 const log = s => { $("log").textContent += `[${new Date().toLocaleTimeString()}] ${s}\n`; $("log").scrollTop = $("log").scrollHeight; };
 const setStatus = (s, cls) => { const e = $("status"); e.textContent = s; e.className = cls || ""; };
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+const hex = data => [...data].map(v => v.toString(16).padStart(2, "0")).join(" ");
+const formatTime = ms => {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(seconds / 60);
+  return minutes ? `${minutes}:${String(seconds % 60).padStart(2,"0")}` : `${seconds}s`;
+};
 
 const u32 = (b,o) => b[o] | (b[o+1]<<8) | (b[o+2]<<16) | (b[o+3]<<24);
 const put16 = (b,o,v) => { b[o]=v&255; b[o+1]=v>>8; };
@@ -74,6 +113,11 @@ function pagesFromRanges(ranges) {
       pages.get(paddr)[a - paddr] = r.data[i];
     }
   }
+  const sectors = new Set([...pages.keys()].map(addr => addr & ~(ERASE - 1)));
+  for (const sector of sectors)
+    for (let addr = sector; addr < sector + ERASE; addr += PAGE)
+      if (!pages.has(addr)) pages.set(addr, new Uint8Array(PAGE).fill(0xff));
+  if (!pages.size) throw Error("The firmware has no flash data.");
   return [...pages.entries()].sort((a,b) => a[0] - b[0]).map(([addr,data]) => ({addr,data}));
 }
 
@@ -126,148 +170,216 @@ async function getPages(file) {
   return parseBin(buf);
 }
 
+let txNumber = 0;
+
 async function send(cmd, addr, data = new Uint8Array()) {
   const r = new Uint8Array(13);
   r[0] = cmd; put32(r,1,addr); r.set(data, 5);
-  await device.sendFeatureReport(RID_WRITE, r);
-  await new Promise(resolve => setTimeout(resolve, 8));
+  const number = ++txNumber;
+  const target = device;
+  const started = performance.now();
+  log(`TX #${number}: cmd=${cmd}, report=${RID_WRITE}, addr=0x${addr.toString(16).padStart(8,"0")}, data=[${hex(data)}], report=[${hex(r)}].`);
+  try {
+    await target.sendFeatureReport(RID_WRITE, r);
+    log(`TX #${number}: OK, ${(performance.now() - started).toFixed(3)} ms.`);
+  } catch (e) {
+    log(`TX #${number}: ERROR ${e.name || "Error"}: ${e.message}, ${(performance.now() - started).toFixed(3)} ms.`);
+    throw e;
+  }
+  const erasesSector = cmd === CMD_WRITE_PAGE && (addr & (ERASE - 1)) === 0;
+  const delay = erasesSector ? ERASE_DELAY_MS : WRITE_DELAY_MS;
+  const operation = cmd === CMD_FINISH_RESET ? "reboot" : erasesSector ? "sector erase" : "program";
+  log(`TX #${number}: wait ${delay} ms (${operation}).`);
+  await sleep(delay);
 }
 
 let device = null;
 let pages = null;
-let phase = "idle"; // idle | awaiting-plug-in | waiting-for-board | flashing
+let phase = "idle"; // idle | choosing-device | waiting-for-board | opening | flashing | rebooting
+
+async function openDevice(nextDevice) {
+  device = nextDevice;
+  if (!device.opened) await device.open();
+  log(`HID open: VID=0x${device.vendorId.toString(16).padStart(4,"0")}, PID=0x${device.productId.toString(16).padStart(4,"0")}, product=${JSON.stringify(device.productName || null)}, collections=${device.collections.length}.`);
+  for (const [index, collection] of device.collections.entries()) {
+    const featureIds = (collection.featureReports || []).map(report => report.reportId);
+    log(`HID collection #${index}: usagePage=0x${collection.usagePage.toString(16)}, usage=0x${collection.usage.toString(16)}, featureReportIds=[${featureIds.join(",")}].`);
+    if (featureIds.length && !featureIds.includes(RID_WRITE))
+      throw Error(`HID Feature report ID ${RID_WRITE} is not present; found [${featureIds.join(",")}].`);
+  }
+}
+
+async function startFlash(nextDevice, source) {
+  if (phase !== "waiting-for-board") return;
+  phase = "opening";
+  log(`Board found by ${source}: ${nextDevice.productName || "CH32V003 HID bootloader"}.`);
+  try {
+    await openDevice(nextDevice);
+  } catch (e) {
+    setStatus(e.message, "err");
+    log(`Open error: ${e.name || "Error"}: ${e.message}`);
+    phase = "idle";
+    $("flash").disabled = false;
+    $("flash").textContent = "Flash CH32V003";
+    return;
+  }
+  await performFlash();
+}
 
 async function performFlash() {
   phase = "flashing";
   setStatus("Writing flash…");
   log("--- Flash started ---");
+  const started = performance.now();
   try {
+    txNumber = 0;
     log(`Connected to ${device.productName || "CH32V003 HID bootloader"}.`);
+    log(`Plan: ${pages.length} pages, ${pages.length * PAGE / CHUNK} reports, write delay ${WRITE_DELAY_MS} ms, erase delay ${ERASE_DELAY_MS} ms.`);
+    $("progress-wrap").hidden = false;
     $("progress").max = pages.length * (PAGE / CHUNK);
     $("progress").value = 0;
+    $("elapsed").textContent = "Elapsed: 0s";
+    $("remaining").textContent = "Estimating time…";
     for (const p of pages) {
       for (let off = 0; off < PAGE; off += CHUNK) {
         await send(CMD_WRITE_PAGE, p.addr + off, p.data.slice(off, off + CHUNK));
         $("progress").value++;
+        const elapsed = performance.now() - started;
+        const left = elapsed / $("progress").value * ($("progress").max - $("progress").value);
+        $("elapsed").textContent = `Elapsed: ${formatTime(elapsed)}`;
+        $("remaining").textContent = $("progress").value === $("progress").max ? "About 0s left" : `About ${formatTime(left)} left`;
       }
       log(`Wrote page at 0x${p.addr.toString(16)}.`);
     }
     log("Sending reset command.");
-    await send(CMD_FINISH_RESET, 0);
-    setStatus("Done. The chip is rebooting into the user app. To reflash: click Flash again, then reset the board.", "ok");
+    phase = "rebooting";
+    let resetError = null;
+    try {
+      await send(CMD_FINISH_RESET, 0);
+    } catch (e) {
+      resetError = e;
+      await sleep(250);
+    }
+    if (resetError && device) throw resetError;
+    if (resetError) log("Reset command ended with the expected USB disconnect.");
+    $("elapsed").textContent = `Elapsed: ${formatTime(performance.now() - started)}`;
+    $("remaining").textContent = "Complete";
+    setStatus("Done. The chip is rebooting into the user app.", "ok");
     log("Done.");
     $("flash").disabled = false;
+    $("flash").textContent = "Flash again";
     phase = "idle";
   } catch (e) {
+    $("elapsed").textContent = `Elapsed: ${formatTime(performance.now() - started)}`;
+    $("remaining").textContent = "Stopped";
     setStatus(e.message, "err");
     log(`Error: ${e.message}`);
-    $("flash").disabled = !pages;
+    $("flash").disabled = false;
+    $("flash").textContent = "Try again";
     phase = "idle";
   }
 }
 
 $("flash").addEventListener("click", async () => {
-  if (phase === "flashing" || phase === "waiting-for-board") return;
-  if (!pages) return;
+  if (phase !== "idle") return;
   if (!navigator.hid) { setStatus("WebHID is not available. Use Chrome, Edge, or Opera.", "err"); return; }
 
+  phase = "choosing-device";
   $("flash").disabled = true;
-
-  const known = (await navigator.hid.getDevices()).find(d => d.vendorId === VID && d.productId === PID);
-
-  if (phase === "awaiting-plug-in") {
-    // Second click after the first-time hint — board should be plugged in now.
-    setStatus("Opening device picker — select your CH32V003.");
-    log("Opening permission picker.");
-    let picked;
-    try {
-      [picked] = await navigator.hid.requestDevice({filters: [{vendorId: VID, productId: PID}]});
-    } catch (e) {
-      setStatus(e.message, "err");
-      log(`Error: ${e.message}`);
-      phase = "idle"; $("flash").disabled = !pages;
-      return;
+  $("flash").textContent = "Connecting…";
+  try {
+    const known = await navigator.hid.getDevices();
+    let target = known.find(d => d.vendorId === VID && d.productId === PID);
+    if (!target) {
+      setStatus("Chrome may ask for device access. Select CH32V.");
+      log("No connected device with past access. Opening the WebHID device window.");
+      [target] = await navigator.hid.requestDevice({filters: [{vendorId: VID, productId: PID}]});
     }
-    if (!picked) {
-      setStatus("No device selected.", "err");
+    if (!target) {
+      setStatus("No CH32V device selected. Connect it in bootloader mode and try again.", "err");
       log("No device selected.");
-      phase = "idle"; $("flash").disabled = !pages;
-      return;
-    }
-    device = picked;
-    await device.open();
-    await performFlash();
-    return;
-  }
-
-  if (known) {
-    device = known;
-    if (device.opened) {
-      await performFlash();
+      phase = "idle";
+      $("flash").disabled = false;
+      $("flash").textContent = "Flash CH32V003";
       return;
     }
     phase = "waiting-for-board";
-    setStatus("Ready. Plug in the CH32V003 (or reset it) — flashing starts automatically when the bootloader enumerates.");
-    log("Waiting for the board. Plug it in or reset it now.");
-    return;
+    await startFlash(target, known.includes(target) ? "past WebHID access" : "WebHID device window");
+  } catch (e) {
+    setStatus(e.message, "err");
+    log(`Device access error: ${e.name || "Error"}: ${e.message}`);
+    phase = "idle";
+    $("flash").disabled = false;
+    $("flash").textContent = "Try again";
   }
-
-  // First time, no authorized device yet.
-  phase = "awaiting-plug-in";
-  setStatus("First time: plug in the CH32V003 (or reset it so the bootloader enumerates), then click Flash again for the one-time permission prompt.");
-  log("First time: plug in the board so it enumerates, then click Flash to open the permission picker.");
-  $("flash").disabled = false;
 });
 
 if (navigator.hid) {
   navigator.hid.addEventListener("connect", async (ev) => {
     if (ev.device.vendorId !== VID || ev.device.productId !== PID) return;
-    if (phase === "waiting-for-board") {
-      log(`Board connected: ${ev.device.productName || "CH32V003 HID bootloader"}.`);
-      device = ev.device;
-      try {
-        if (!device.opened) await device.open();
-      } catch (e) {
-        setStatus(e.message, "err");
-        log(`Error: ${e.message}`);
-        phase = "idle"; $("flash").disabled = !pages;
-        return;
-      }
-      await performFlash();
-    } else if (phase === "awaiting-plug-in") {
-      log(`Board detected: ${ev.device.productName || "CH32V003 HID bootloader"}.`);
-      setStatus("Board detected. Click Flash to grant permission and start flashing.");
-    } else if (phase === "idle" && pages) {
-      setStatus("Board detected. Click Flash to start.");
-    }
+    if (phase === "idle" && pages)
+      setStatus("CH32V bootloader detected. Click Flash CH32V003.", "ok");
   });
   navigator.hid.addEventListener("disconnect", (ev) => {
     if (device && ev.device === device) {
       device = null;
-      log(phase === "flashing" ? "Device disconnected during flash." : "Device disconnected (the chip rebooted).");
+      log(phase === "rebooting" ? "Device disconnected for reboot." : phase === "flashing" ? "Device disconnected during flash." : "Device disconnected.");
     }
   });
 }
 
-$("file").addEventListener("change", async () => {
-  const f = $("file").files[0];
-  if (!f) {
-    pages = null; $("flash").disabled = true;
-    setStatus("Pick a firmware file to start.");
-    return;
-  }
+async function loadFirmware(f) {
+  if (!f) return;
   setStatus(`Parsing ${f.name}…`);
   try {
     pages = await getPages(f);
     const totalBytes = pages.reduce((s,p) => s + p.data.length, 0);
-    setStatus(`Ready: ${pages.length} page(s), ${totalBytes} B, from 0x${pages[0].addr.toString(16)}.`, "ok");
+    phase = "idle";
+    $("file-summary").textContent = `${f.name} — ${pages.length} pages, ${totalBytes} B, address 0x${pages[0].addr.toString(16)}`;
+    $("pick-step").hidden = true;
+    $("flash-step").hidden = false;
     $("flash").disabled = false;
+    $("flash").textContent = "Flash CH32V003";
+    $("progress-wrap").hidden = true;
+    $("progress").value = 0;
+    setStatus("Firmware is ready. Connect CH32V003 in bootloader mode, then press Flash CH32V003.", "ok");
     log(`Parsed ${f.name}: ${pages.length} pages, ${totalBytes} B, range 0x${pages[0].addr.toString(16)}–0x${(pages[pages.length-1].addr + PAGE - 1).toString(16)}.`);
   } catch (e) {
-    pages = null; $("flash").disabled = true;
+    pages = null;
     setStatus(e.message, "err");
     log(`Parse error: ${e.message}`);
   }
+}
+
+function chooseFirmware() {
+  $("file").value = "";
+  $("file").click();
+}
+
+$("choose").addEventListener("click", e => { e.stopPropagation(); chooseFirmware(); });
+$("change").addEventListener("click", chooseFirmware);
+$("drop").addEventListener("click", chooseFirmware);
+$("drop").addEventListener("keydown", e => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); chooseFirmware(); }
 });
+for (const type of ["dragenter", "dragover"]) $("drop").addEventListener(type, e => {
+  e.preventDefault();
+  $("drop").classList.add("drag");
+});
+for (const type of ["dragleave", "drop"]) $("drop").addEventListener(type, e => {
+  e.preventDefault();
+  $("drop").classList.remove("drag");
+});
+$("drop").addEventListener("drop", e => loadFirmware(e.dataTransfer.files[0]));
+$("file").addEventListener("change", () => loadFirmware($("file").files[0]));
+
+if (navigator.hid) {
+  navigator.hid.getDevices().then(known => {
+    const approved = known.find(d => d.vendorId === VID && d.productId === PID);
+    if (approved) {
+      log("Past HID access found for the connected 1209:BEEF device.");
+    }
+  }).catch(e => log(`HID access check error: ${e.name || "Error"}: ${e.message}`));
+}
 </script>
 </html>

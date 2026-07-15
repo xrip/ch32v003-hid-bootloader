@@ -24,12 +24,11 @@
  * USB pin and endpoint configuration
  * ============================================================ */
 
-#define ENDPOINTS 1
+#define ENDPOINTS 2
 
-#define USB_PORT D
-#define USB_PIN_DP 3
-#define USB_PIN_DM 4
-#define USB_PIN_DPU 5
+#define USB_PORT C
+#define USB_PIN_DP 1
+#define USB_PIN_DM 2
 
 /* ============================================================
  * Register base addresses
@@ -39,14 +38,15 @@
 #define FLASH_R_BASE    0x40022000
 #define EXTI_BASE       0x40010400
 #define TIM1_BASE       0x40012C00
+#define SYSTICK_BASE    0xE000F000
 
-#define GPIOD_BASE      0x40011400
+#define GPIOC_BASE      0x40011000
 
 /* ============================================================
  * Peripheral pointers (usable in C; inert in asm)
  * ============================================================ */
 
-#define GPIOD           ((GPIO_TypeDef *)GPIOD_BASE)
+#define GPIOC           ((GPIO_TypeDef *)GPIOC_BASE)
 #define AFIO            ((AFIO_TypeDef *)0x40010000)
 #define EXTI            ((EXTI_TypeDef *)EXTI_BASE)
 #define RCC             ((RCC_TypeDef *)RCC_BASE)
@@ -57,9 +57,9 @@
  * Peripheral bit / mode defines
  * ============================================================ */
 
-#define RCC_APB2Periph_GPIOD 0x00000020
+#define RCC_APB2Periph_GPIOC 0x00000010
 #define RCC_APB2Periph_AFIO  0x00000001
-#define GPIO_PortSourceGPIOD 3
+#define GPIO_PortSourceGPIOC 2
 
 #define GPIO_Speed_In             0x0
 #define GPIO_CNF_IN_FLOATING      0x4
@@ -131,7 +131,11 @@ typedef struct {
     volatile uint32_t OBR;
     volatile uint32_t WPR;
     volatile uint32_t MODEKEYR;
+    volatile uint32_t BOOT_MODEKEYR;
 } FLASH_TypeDef;
+
+_Static_assert(__builtin_offsetof(FLASH_TypeDef, BOOT_MODEKEYR) == 0x28,
+               "FLASH BOOT_MODEKEYR offset must match CH32V003");
 
 typedef struct {
     volatile uint32_t ISR[8];
@@ -141,19 +145,26 @@ typedef struct {
     volatile uint32_t CFGR;
     volatile uint32_t GISR;
     volatile uint8_t VTFIDR[4];
-    uint8_t RESERVED0[0x90];
+    uint8_t RESERVED0[12];
+    volatile uint32_t VTFADDR[4];
+    uint8_t RESERVED1[0x90];
     volatile uint32_t IENR[8];
-    uint8_t RESERVED1[0x60];
-    volatile uint32_t IRER[8];
     uint8_t RESERVED2[0x60];
-    volatile uint32_t IPSR[8];
+    volatile uint32_t IRER[8];
     uint8_t RESERVED3[0x60];
-    volatile uint32_t IPRR[8];
+    volatile uint32_t IPSR[8];
     uint8_t RESERVED4[0x60];
+    volatile uint32_t IPRR[8];
+    uint8_t RESERVED5[0x60];
     volatile uint32_t IACTR[8];
-    uint8_t RESERVED5[0xE0];
+    uint8_t RESERVED6[0xE0];
+    volatile uint8_t IPRIOR[256];
+    uint8_t RESERVED7[0x810];
     volatile uint32_t SCTLR;
 } PFIC_TypeDef;
+
+_Static_assert(__builtin_offsetof(PFIC_TypeDef, IENR) == 0x100,
+               "PFIC IENR offset must match CH32V003");
 
 /* ============================================================
  * USB descriptor list (rv003usb optional API)

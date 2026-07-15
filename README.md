@@ -4,13 +4,17 @@
 (WebHID; Chrome, Edge, Opera. No install.)
 
 A small USB HID bootloader for the CH32V003. The device enumerates as a
-vendor HID device (VID `0x1209`, PID `0xB003`) and is flashed from a
-browser over WebHID, with no native host tooling required.
+vendor HID device (VID `0x1209`, PID `0xBEEF`) and is flashed from a
+browser over WebHID, with no native host tooling required. Its USB
+product name is `CH32V`.
 
 The CH32V003 has no hardware USB peripheral. The bootloader bit-bangs a
 low-speed HID stack, which is small enough to live in the 1920-byte
-boot area. It uses HID feature reports over control endpoint 0; no
-additional USB endpoints are needed.
+boot area. Flash data uses HID feature reports over control endpoint 0;
+the required HID Interrupt IN endpoint is present but carries no data.
+The board has a fixed 1.5 kΩ pull-up from D- to 3.3 V. On entry and
+before starting the user app, the bootloader drives D- low for a short
+USB disconnect.
 
 ## Building
 
@@ -34,8 +38,8 @@ It fails if the binary exceeds the CH32V003 boot-area limit of 1920 bytes
 
 Open `webhid-flasher.html` in a Chromium-based browser (Chrome, Edge,
 or Opera). The page accepts `.bin`, `.elf`, and `.uf2` files, converts
-them client-side, and sends addressed 8-byte write chunks to the device
-over HID feature reports. The device enumerates as `1209:B003` — that's
+them client-side, and sends addressed 8-byte chunks over HID feature
+reports. The device enumerates as `1209:BEEF` — that's
 the filter the WebHID page uses to find it.
 
 To flash:
@@ -50,12 +54,27 @@ browser can show the one-time permission prompt. After that, the three
 steps above are all you need — a reset is enough to start each new
 flash.
 
-On reset the bootloader waits for a bounded number of cycles. If no
+For detailed Windows-side diagnostics, use the dependency-free Python
+tool. It logs device identity, HID report sizes and IDs, every packet,
+address, payload, result, Windows error, transfer time, and wait:
+
+```powershell
+python .\hid-flasher.py --probe
+python .\hid-flasher.py firmware.bin --dry-run
+python .\hid-flasher.py firmware.bin
+```
+
+The tool accepts `.bin`, `.elf`, and `.uf2`. Use `--base` for a BIN with
+a non-default address, `--step` for one packet at a time, or
+`--limit-chunks N --no-reset` for a controlled partial-write test.
+
+On power-up the bootloader waits for about five seconds. If no
 first write report arrives during that window it jumps straight to the
 user application; once flashing starts it stays active and writes the
 payload into flash. When all pages are written, the flasher sends a
 reset command and the chip reboots into the newly-written user
-application.
+application. If the first user-flash word is erased (`0xFFFFFFFF`), the
+bootloader stays active instead of starting empty flash.
 
 ## Limitations
 
@@ -71,15 +90,16 @@ application.
 
 The bootloader fits in a **1920-byte BOOT area** on the CH32V003 (remapped
 to `0x00000000` on reset). The linker script enforces this: overflow
-fails the link. The current binary is **1676 / 1920 B (87 %)**.
+fails the link. The current binary is **1804 / 1920 B (94 %)**.
 
-The code is deliberately terse. `-nostdlib` acts as a guardrail: a stray
+The code is size-focused, but its identifiers remain descriptive.
+`-nostdlib` acts as a guardrail: a stray
 `int * int` would fail the link instead of silently pulling `__mulsi3`
-(~+36 B) into the image. The main size reductions are a control-endpoint-0
-only USB path, one packed descriptor table, a 16-byte report buffer with
-word copies, and the small `process_payload` command handler. The build
-also force-inlines `flash_wait`, writes the needed peripheral registers
-directly, and keeps `boot_user` as one stable handoff point under LTO.
+(~+36 B) into the image. The main size reductions are a shared descriptor
+lookup table, a 16-byte report buffer with word copies, aligned command-header
+reads, and the inlined `process_flash_report` handler. The build also
+force-inlines `wait_for_flash`, writes the needed peripheral registers
+directly, and keeps `boot_firmware` as one stable handoff point under LTO.
 
 Library audit: zero libgcc/libc symbols. The rv003usb ISR is at its
 feature floor — every optional macro is off and `--gc-sections` removes

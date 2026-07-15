@@ -37,7 +37,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_compile_options(${PROJECT_NAME} PRIVATE
     -march=rv32ec_zicsr
     -mabi=ilp32e
-    -Os
+    -Oz
     -ffunction-sections
     -fdata-sections
     -fno-builtin
